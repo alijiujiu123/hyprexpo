@@ -33,6 +33,22 @@ inline constexpr int         MAX_WORKSPACE_DEFAULT           = 0;
 inline constexpr int         SHOW_WORKSPACE_NUMBERS_DEFAULT  = 0;
 inline constexpr unsigned    WORKSPACE_NUMBER_COLOR_DEFAULT  = 0xFFFFFFFF;
 inline constexpr int         GESTURE_DISTANCE_DEFAULT        = 200;
+// Release momentum: the swipe delta a released finger would still cover is v^2 / (2a),
+// so the deceleration `a` sets how brisk a flick has to be before it commits the overview
+// on its own. Units are gesture-delta units per second^2 — the delta is the registered
+// gesture `scale` times the raw libinput travel, so with scale 0.4 and
+// gesture_distance 200 the values below mean:
+//   800  only a hard flick (~2000 raw units/s) commits without travel
+//   2000 a deliberate swipe (~1600 raw units/s) commits without travel
+//   4000 the 50 % distance rule dominates; flicks only help when they are fast
+// 0 disables the momentum term entirely (the commit test becomes pure position again).
+inline constexpr int         MOMENTUM_DECEL_DEFAULT          = 2000;
+// Time constant of the release-velocity estimate, in ms: longer follows the whole swipe,
+// shorter only its tail (and lets a flick that stops dead before release read as slow).
+inline constexpr int         MOMENTUM_WINDOW_MS_DEFAULT      = 80;
+// Log one HYPREXPO_SWIPE_RELEASE line per gesture release (delta / velocity / projection),
+// so the momentum feel can be calibrated from numbers instead of guesswork.
+inline constexpr int         MOMENTUM_DEBUG_DEFAULT          = 0;
 inline constexpr int         GESTURE_FINGERS_DEFAULT         = 0;
 inline constexpr const char* GESTURE_DIRECTION_DEFAULT       = "up";
 inline constexpr const char* CANCEL_KEY_DEFAULT              = "escape";

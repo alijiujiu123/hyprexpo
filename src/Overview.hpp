@@ -56,7 +56,7 @@ class COverview final : public IOverviewSession {
 
     void resetSwipe() override;
     void onSwipeUpdate(double delta) override;
-    void onSwipeEnd(bool switchToSelection) override;
+    void onSwipeEnd(bool switchToSelection, double projectedDelta = -1.0) override;
 
     // close without a selection
     void          close(bool switchToSelection = true);
@@ -166,6 +166,9 @@ class COverview final : public IOverviewSession {
     PHLANIMVAR<Vector2D>         pos;
 
     bool                         closing = false;
+    // Direction the in-flight drag was interpreted with; the gesture clears `closing` before
+    // the swipe-end decision, which still needs it to project the release momentum.
+    bool                         swipeClosing = false;
     bool                         m_closeCommitted = false;
     uint64_t                     m_sessionGeneration = 0;
     bool                         externalWorkspaceMoveDuringClose = false;

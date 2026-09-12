@@ -53,6 +53,15 @@ void registerHyprexpoConfigValues() {
     addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:show_workspace_numbers", "force workspace ID labels", HyprexpoConfig::SHOW_WORKSPACE_NUMBERS_DEFAULT));
 
     addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:gesture_distance", "gesture distance", HyprexpoConfig::GESTURE_DISTANCE_DEFAULT));
+    addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:momentum_decel", "release momentum: deceleration in gesture-delta units/s^2 (0 disables)",
+                                                         HyprexpoConfig::MOMENTUM_DECEL_DEFAULT,
+                                                         Config::Values::SIntValueOptions{.min = 0, .max = 1000000}));
+    addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:momentum_window_ms", "release momentum: velocity time constant in ms",
+                                                         HyprexpoConfig::MOMENTUM_WINDOW_MS_DEFAULT,
+                                                         Config::Values::SIntValueOptions{.min = 1, .max = 1000}));
+    addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:momentum_debug", "release momentum: log each gesture release for calibration",
+                                                         HyprexpoConfig::MOMENTUM_DEBUG_DEFAULT,
+                                                         Config::Values::SIntValueOptions{.min = 0, .max = 1}));
     addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:gesture_fingers", "fingers for the swipe gesture (0 disables)", HyprexpoConfig::GESTURE_FINGERS_DEFAULT,
                                                          Config::Values::SIntValueOptions{.min = 0, .max = 9}));
     addConfigValue(makeShared<Config::Values::CStringValue>("plugin:hyprexpo:gesture_direction", "swipe direction for the gesture", HyprexpoConfig::GESTURE_DIRECTION_DEFAULT,

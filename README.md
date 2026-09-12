@@ -155,6 +155,8 @@ plugin {
         bg_col = rgb(111111)
         workspace_method = center current
         gesture_distance = 200
+        momentum_decel = 2000
+        momentum_window_ms = 80
         cancel_key = escape
         show_cursor = 1
         show_pinned_windows = 0
@@ -176,6 +178,8 @@ hl.config({
             bg_col = "rgb(111111)",
             workspace_method = "center current",
             gesture_distance = 200,
+            momentum_decel = 2000, -- Release-momentum deceleration; 0 = decide on position only.
+            momentum_window_ms = 80,
             cancel_key = "escape",
             show_cursor = 1,
             drag_drop_enable = 0, -- Disable moving windows by dragging workspace previews.
@@ -185,6 +189,17 @@ hl.config({
 ```
 
 `drag_drop_enable` defaults to `1`. Set it to `0` to keep workspace clicks from moving windows when the pointer shifts during a click.
+
+The swipe gesture commits on the **release velocity**, not only on how far the
+finger travelled: the gesture carries an exponentially weighted velocity (time
+constant `momentum_window_ms`) and, when the finger lifts, projects where it
+would come to rest under a constant deceleration `momentum_decel`
+(`v^2 / 2a` in gesture-delta units per second^2). That projection is what the
+half-way commit test sees, so a quick flick opens the overview from a shallow
+drag, a flick back takes it away again, and a finger that stops before lifting
+reads as slow. `momentum_decel = 0` restores the old pure-position rule.
+Set `momentum_debug = 1` to log one `HYPREXPO_SWIPE_RELEASE` line per release
+(delta, velocity, projection, distance) for calibration.
 
 For ten fixed-grid slots, use `columns = 5`, `rows = 2`, `dynamic_grid = 0`,
 and `skip_empty = 0`. Empty workspaces remain selectable and can receive dragged

@@ -571,9 +571,17 @@ int main() {
                gestureUpdate.find("!OV || OV->closeCommitted()") != std::string::npos,
            "gesture updates re-resolve the origin overview and ignore committed closes");
     const auto firstUpdateGuard = gestureUpdate.find("if (m_firstUpdate)");
-    const auto accumulateDelta  = gestureUpdate.find("m_lastDelta += distance(e);");
+    const auto accumulateDelta  = gestureUpdate.find("m_lastDelta += DELTA;");
     expect(firstUpdateGuard != std::string::npos && accumulateDelta != std::string::npos && firstUpdateGuard < accumulateDelta,
            "gesture updates discard the first compositor delta before accumulating movement");
+    expectContains(gestureUpdate, "trackVelocity(DELTA, e.swipe->timeMs)",
+                   "gesture derives the release velocity from the libinput event timestamps");
+    expectContains(gestureSource, "plugin:hyprexpo:momentum_decel", "momentum deceleration is read from the live config");
+    expectContains(gestureSource, "plugin:hyprexpo:momentum_window_ms", "momentum velocity window is read from the live config");
+    expectContains(gestureSource, "Hyprexpo::Momentum::projectDelta(",
+                   "gesture projects where the released finger would land instead of averaging the whole swipe");
+    expectContains(gestureSource, "if (endTimeMs > m_lastSampleMs)",
+                   "gesture treats a pause before release as no motion so stale velocity cannot commit");
 
     const auto gestureEnd = extractFunction(gestureSource, "void CExpoGesture::end(");
     expect(!gestureEnd.empty(), "gesture end function exists");
@@ -582,18 +590,23 @@ int main() {
            "gesture end re-resolves the origin overview and ignores committed closes");
     expect(gestureEnd.find("OV->setClosing(false)") != std::string::npos,
            "gesture end clears transient closing before threshold evaluation");
-    expect(gestureEnd.find("OV->onSwipeEnd(m_action == EExpoGestureAction::Expo)") != std::string::npos,
-           "gesture completion selects only for the expo action");
+    expect(gestureEnd.find("OV->onSwipeEnd(m_action == EExpoGestureAction::Expo, PROJECTED)") != std::string::npos,
+           "gesture completion selects only for the expo action and forwards the release projection");
+    expect(gestureEnd.find("e.swipe ? releaseProjectedDelta(e.swipe->timeMs) : -1.0") != std::string::npos,
+           "gesture completion derives the projection from the release timestamp");
     expect(gestureEnd.find("if (auto* const STILL_ALIVE = overview())") != std::string::npos &&
                gestureEnd.find("STILL_ALIVE->resetSwipe()") != std::string::npos,
            "gesture completion re-resolves the origin overview before its post-close reset");
 
     const auto swipeEnd = extractFunction(interactionSource, "void COverview::onSwipeEnd(");
     expect(!swipeEnd.empty(), "overview swipe-end function exists");
-    expect(swipeEnd.find("void COverview::onSwipeEnd(bool switchToSelection)") != std::string::npos,
-           "overview swipe completion accepts the selection decision");
+    expect(swipeEnd.find("void COverview::onSwipeEnd(bool switchToSelection, double projectedDelta)") != std::string::npos,
+           "overview swipe completion accepts the selection decision and the release projection");
+    expect(swipeEnd.find("DECIDING_PERC = swipeClosing ? std::clamp(projectedDelta / DISTANCE, 0.0, 1.0) : 1.0 - std::clamp(projectedDelta / DISTANCE, 0.0, 1.0)") !=
+               std::string::npos,
+           "overview projected landing reuses the drag direction recorded before closing was cleared");
     const auto degenerateSpanStart = swipeEnd.find("if (std::abs(span.x) <= 1e-6)");
-    const auto thresholdStart = swipeEnd.find("if (PERC > 0.5)", degenerateSpanStart);
+    const auto thresholdStart = swipeEnd.find("if (DECIDING_PERC > 0.5)", degenerateSpanStart);
     const auto incompleteStart = swipeEnd.find("*size = MON->m_size", thresholdStart);
     const auto degenerateSpanBlock = degenerateSpanStart == std::string::npos || thresholdStart == std::string::npos ? std::string{} :
                                                                                                                        swipeEnd.substr(degenerateSpanStart, thresholdStart - degenerateSpanStart);
@@ -872,7 +885,7 @@ int main() {
 
     for (const auto& token : {"class IOverviewSession", "virtual ~IOverviewSession", "virtual void render()", "virtual void damage()", "virtual void onDamageReported()",
                               "virtual void onPreRender()", "virtual void fullRender()", "virtual void close(", "virtual bool closeCommitted()", "virtual void setClosing(",
-                              "virtual void resetSwipe()", "virtual void onSwipeUpdate(", "virtual void onSwipeEnd(bool switchToSelection)", "virtual void onWindowMoveToWorkspace(",
+                              "virtual void resetSwipe()", "virtual void onSwipeUpdate(", "virtual void onSwipeEnd(bool switchToSelection, double projectedDelta", "virtual void onWindowMoveToWorkspace(",
                               "virtual bool selectHoveredWorkspace()", "virtual bool onKbMoveFocus(", "virtual bool onKbConfirm()", "virtual bool onKbSelectNumber(",
                               "virtual bool onKbSelectToken(", "virtual bool selectVisibleToken(", "virtual int64_t selectedWorkspaceID()", "virtual bool selectWorkspaceByID(",
                               "virtual bool selectVisibleIndex(", "virtual bool moveWindowBetweenVisibleIndices(", "virtual bool blocksOverviewRendering()",
@@ -913,11 +926,14 @@ int main() {
                    "scrolling swipe reads gesture distance through the Lua-compatible config boundary");
     expectAbsent(scrollingSource, "HyprlandAPI::getConfigValue", "scrolling session never uses the legacy config getter");
     expectContains(sessionHeader, "virtual void beginCancelSwipe() = 0", "cancel gesture dispatches through the session interface");
-    expectContains(sessionHeader, "virtual void onSwipeEnd(bool switchToSelection) = 0", "session interface retains action-specific swipe completion");
+    expectContains(sessionHeader, "virtual void onSwipeEnd(bool switchToSelection, double projectedDelta = -1.0) = 0",
+                   "session interface retains action-specific swipe completion plus the release projection");
     const auto scrollingCancelBegin = extractFunction(scrollingSource, "void CScrollingOverview::beginCancelSwipe(");
     expectContains(scrollingCancelBegin, "setClosing(true)", "scrolling cancel begins the existing input-fenced close transition");
     expectAbsent(scrollingCancelBegin, "commitSelection", "scrolling cancel never commits a hovered selection");
     const auto scrollingSwipeEnd = extractFunction(scrollingSource, "void CScrollingOverview::onSwipeEnd(");
+    expectContains(scrollingSwipeEnd, "transitionForSwipe(m_swipeClosing, projectedDelta",
+                   "scrolling swipe completion evaluates the projected landing instead of only the on-screen progress");
     expectContains(scrollingSwipeEnd, "close(false)", "scrolling swipe completion retains the opening workspace for both gesture actions");
     expectAbsent(scrollingSwipeEnd, "close(true)", "scrolling swipe completion never commits selection implicitly");
     expectContains(scrollingSource, "applyOverviewTransition", "scrolling render boxes consume the transition transform");

@@ -796,12 +796,21 @@ void CScrollingOverview::onSwipeUpdate(double delta) {
     damage();
 }
 
-void CScrollingOverview::onSwipeEnd(bool /*switchToSelection*/) {
+void CScrollingOverview::onSwipeEnd(bool /*switchToSelection*/, double projectedDelta) {
     if (m_closeCommitted)
         return;
     m_isSwiping = false;
-    m_closing = false;
-    const float progress = m_transitionProgress ? m_transitionProgress->value() : 1.F;
+    m_closing   = false;
+
+    // Release momentum replaces the on-screen progress in the commit test only: a flicking
+    // finger lands where it was heading even if the drag itself stayed shallow. The
+    // animation below still starts from the current progress.
+    double progress = m_transitionProgress ? m_transitionProgress->value() : 1.F;
+    if (projectedDelta >= 0.0) {
+        const double distance = std::max<Hyprlang::INT>(1, CompatHyprlandAPI::intValue("plugin:hyprexpo:gesture_distance"));
+        progress              = transitionForSwipe(m_swipeClosing, projectedDelta, distance);
+    }
+
     if (progress < 0.5F) {
         close(false);
         return;

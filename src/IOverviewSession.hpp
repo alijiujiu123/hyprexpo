@@ -34,7 +34,9 @@ class IOverviewSession {
 
     virtual void resetSwipe() = 0;
     virtual void onSwipeUpdate(double delta) = 0;
-    virtual void onSwipeEnd(bool switchToSelection) = 0;
+    // projectedDelta: cumulative gesture delta the release velocity would still cover, in the
+    // same units as onSwipeUpdate's delta (negative = no velocity estimate, decide on position).
+    virtual void onSwipeEnd(bool switchToSelection, double projectedDelta = -1.0) = 0;
 
     virtual void close(bool switchToSelection = true) = 0;
     virtual bool selectHoveredWorkspace() = 0;

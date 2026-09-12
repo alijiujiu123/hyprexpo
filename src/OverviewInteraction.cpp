@@ -667,6 +667,7 @@ void COverview::onWindowMoveToWorkspace(const PHLWINDOW& window, const PHLWORKSP
 
 void COverview::resetSwipe() {
     swipeWasCommenced = false;
+    swipeClosing      = false;
 }
 
 void COverview::onSwipeUpdate(double delta) {
@@ -689,6 +690,8 @@ void COverview::onSwipeUpdate(double delta) {
     static auto* const* PDISTANCE = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:gesture_distance")->getDataStaticPtr();
     const double        distance  = std::max<Hyprlang::INT>(1, **PDISTANCE);
 
+    swipeClosing = closing;
+
     const float         PERC               = closing ? std::clamp(delta / distance, 0.0, 1.0) : 1.0 - std::clamp(delta / distance, 0.0, 1.0);
     const auto          WORKSPACE_FOCUS_ID = closing && closeOnID != -1 ? closeOnID : openedID;
 
@@ -705,7 +708,7 @@ void COverview::onSwipeUpdate(double delta) {
     pos->setValueAndWarp(lerp(POSMIN, POSMAX, PERC));
 }
 
-void COverview::onSwipeEnd(bool switchToSelection) {
+void COverview::onSwipeEnd(bool switchToSelection, double projectedDelta) {
     if (m_closeCommitted)
         return;
 
@@ -726,7 +729,20 @@ void COverview::onSwipeEnd(bool switchToSelection) {
         return;
     }
     const auto PERC    = (size->value() - SIZEMIN).x / span.x;
-    if (PERC > 0.5) {
+
+    // Release momentum: a projected delta commits from a shallow drag when the finger was
+    // still carrying speed, and a flick back can take an otherwise committing drag away.
+    // The animation below always starts from what is on screen, so the projection only
+    // moves the threshold, it never warps the overview. `swipeClosing` supplies the
+    // direction because the gesture already cleared `closing` before this runs.
+    double DECIDING_PERC = PERC;
+    if (projectedDelta >= 0.0) {
+        static auto* const* PDISTANCE = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:gesture_distance")->getDataStaticPtr();
+        const double        DISTANCE  = std::max<Hyprlang::INT>(1, **PDISTANCE);
+        DECIDING_PERC = swipeClosing ? std::clamp(projectedDelta / DISTANCE, 0.0, 1.0) : 1.0 - std::clamp(projectedDelta / DISTANCE, 0.0, 1.0);
+    }
+
+    if (DECIDING_PERC > 0.5) {
         close(switchToSelection);
         return;
     }

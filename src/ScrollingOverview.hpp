@@ -38,7 +38,7 @@ class CScrollingOverview final : public IOverviewSession {
     void onWindowMoveToWorkspace(const PHLWINDOW& window, const PHLWORKSPACE& workspace) override;
     void resetSwipe() override;
     void onSwipeUpdate(double delta) override;
-    void onSwipeEnd(bool switchToSelection) override;
+    void onSwipeEnd(bool switchToSelection, double projectedDelta = -1.0) override;
     void close(bool switchToSelection = true) override;
     bool selectHoveredWorkspace() override;
     bool onKbMoveFocus(const std::string& direction) override;

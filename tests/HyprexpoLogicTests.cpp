@@ -1,5 +1,6 @@
 #include "../src/HyprexpoLogic.hpp"
 #include "../src/HyprexpoConfig.hpp"
+#include "../src/GestureMomentum.hpp"
 #include "../src/ScrollingOverviewLogic.hpp"
 #include "../src/ScrollingInputState.hpp"
 #include "../src/ScrollingMutationTransaction.hpp"
@@ -369,6 +370,29 @@ void checkScrollingRequestIds() {
     expect(!validRequestID(""), "shared request ID grammar rejects empty IDs");
     expect(!validRequestID(std::string(65, 'a')), "shared request ID grammar rejects IDs longer than 64 bytes");
     expect(!validRequestID("slash/not-allowed"), "shared request ID grammar rejects punctuation outside dot, underscore, and dash");
+}
+
+void checkSwipeReleaseMomentum() {
+    using namespace Hyprexpo::Momentum;
+
+    // Velocity: exponential, elapsed-time weighted, and decaying when the finger holds still.
+    expect(near(advanceVelocity(0.0, 40.0, 0.08, 0.08), (40.0 / 0.08) * (1.0 - std::exp(-1.0))),
+           "one time constant of motion covers 1 - 1/e of the sample velocity");
+    expect(near(advanceVelocity(500.0, 0.0, 0.08, 0.08), 500.0 * std::exp(-1.0)), "a pause before release decays the estimate");
+    expect(near(advanceVelocity(123.0, 400.0, 0.0, 0.08), 123.0), "a zero-length interval leaves the estimate untouched");
+    expect(near(advanceVelocity(123.0, 400.0, -0.01, 0.08), 123.0), "a non-positive interval leaves the estimate untouched");
+    expect(near(advanceVelocity(100.0, 250.0, 0.02, 0.0), 12500.0), "a disabled window falls back to the plain sample velocity");
+
+    // Projection: v^2 / 2a forward, and a backwards flick coasts the other way.
+    expect(near(projectDelta(40.0, 1000.0, 1000.0), 540.0), "forward release coasts v^2 / 2a past the dragged distance");
+    expect(near(projectDelta(40.0, -1000.0, 1000.0), 0.0), "backwards flick projects below the start and clamps at zero");
+    expect(near(projectDelta(600.0, -400.0, 1000.0), 520.0), "backwards flick from a long drag still coasts backwards");
+    expect(near(projectDelta(40.0, 0.0, 1000.0), 40.0), "a stopped finger projects exactly the dragged distance");
+    expect(near(projectDelta(40.0, 1000.0, 0.0), 40.0), "a disabled deceleration keeps the dragged distance");
+    expect(near(projectDelta(-5.0, 0.0, 1000.0), 0.0), "a negative cumulative delta clamps at zero");
+    expect(near(projectDelta(40.0, 1000.0, -1000.0), 40.0), "a negative deceleration keeps the dragged distance");
+    expect(std::isfinite(projectDelta(40.0, std::nan(""), 1000.0)) && std::isfinite(projectDelta(std::nan(""), 10.0, 1000.0)),
+           "non-finite gesture input cannot reach a threshold comparison as NaN");
 }
 
 void checkScrollingOverviewTransition() {
@@ -991,6 +1015,7 @@ int main() {
     checkScrollingCaptureBudget();
     checkScrollingInputCoordinates();
     checkScrollingRequestIds();
+    checkSwipeReleaseMomentum();
     checkScrollingOverviewTransition();
     checkScrollingMouseInputState();
     checkScrollingTouchAndResetState();
