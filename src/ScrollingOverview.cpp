@@ -1,6 +1,7 @@
 #include "ScrollingOverview.hpp"
 
 #include "HyprexpoConfig.hpp"
+#include "OverviewAnimation.hpp"
 #include "HyprlandConfigCompat.hpp"
 #include "OverviewCapture.hpp"
 #include "OverviewInternal.hpp"
@@ -102,8 +103,10 @@ CScrollingOverview::CScrollingOverview(const PHLWORKSPACE& startedOn, const PHLM
     if (m_valid) {
         installInputListeners();
         enterOverviewSubmap(m_submapActive);
-        if (!swipe)
+        if (!swipe) {
+            Hyprexpo::Animation::applyTo(m_transitionProgress.get());
             *m_transitionProgress = 1.F;
+        }
     }
 }
 
@@ -817,6 +820,7 @@ void CScrollingOverview::onSwipeEnd(bool /*switchToSelection*/, double projected
     }
     m_swipeClosing = false;
     m_swipeDelta = 0.0;
+    Hyprexpo::Animation::applyTo(m_transitionProgress.get());
     *m_transitionProgress = 1.F;
     damage();
 }
@@ -888,6 +892,7 @@ void CScrollingOverview::close(bool switchToSelection) {
             self->cancel();
             m_closeAnimationTimer.reset();
             m_transitionProgress->setCallbackOnEnd([monitorKey, generation](auto) { scheduleScrollingOverviewRemoval(monitorKey, generation); });
+            Hyprexpo::Animation::applyTo(m_transitionProgress.get());
             *m_transitionProgress = 0.F;
             damage();
         },

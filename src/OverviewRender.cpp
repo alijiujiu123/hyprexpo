@@ -1,5 +1,6 @@
 #include "HyprlandConfigCompat.hpp"
 #define HyprlandAPI CompatHyprlandAPI
+#include "OverviewAnimation.hpp"
 #include "OverviewInternal.hpp"
 #include "OverviewCapture.hpp"
 #include "HyprexpoLogic.hpp"
@@ -149,6 +150,8 @@ void COverview::close(bool switchToSelection) {
     const auto& TILE   = images[SAFEID];
 
     const auto targetSize = zoomSizeForCurrentGrid(MON->m_size);
+    Hyprexpo::Animation::applyTo(size.get());
+    Hyprexpo::Animation::applyTo(pos.get());
     *size = targetSize;
     *pos  = -(tilePosForID(SAFEID, targetSize, 0.0) * MON->m_scale);
 

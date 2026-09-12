@@ -62,6 +62,9 @@ void registerHyprexpoConfigValues() {
     addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:momentum_debug", "release momentum: log each gesture release for calibration",
                                                          HyprexpoConfig::MOMENTUM_DEBUG_DEFAULT,
                                                          Config::Values::SIntValueOptions{.min = 0, .max = 1}));
+    addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:overview_anim_speed", "overview open/close duration in 100ms steps (0 = inherit windowsMove)",
+                                                         HyprexpoConfig::OVERVIEW_ANIM_SPEED_DEFAULT,
+                                                         Config::Values::SIntValueOptions{.min = 0, .max = 50}));
     addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:gesture_fingers", "fingers for the swipe gesture (0 disables)", HyprexpoConfig::GESTURE_FINGERS_DEFAULT,
                                                          Config::Values::SIntValueOptions{.min = 0, .max = 9}));
     addConfigValue(makeShared<Config::Values::CStringValue>("plugin:hyprexpo:gesture_direction", "swipe direction for the gesture", HyprexpoConfig::GESTURE_DIRECTION_DEFAULT,

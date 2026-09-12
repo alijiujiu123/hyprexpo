@@ -1,4 +1,6 @@
 #include "Overview.hpp"
+
+#include "OverviewAnimation.hpp"
 #include <any>
 #include <map>
 #include "HyprlandConfigCompat.hpp"
@@ -1303,6 +1305,8 @@ COverview::COverview(PHLWORKSPACE startedOn_, PHLMONITOR monitor_, bool swipe_, 
     pos->setUpdateCallback(damageMonitor);
 
     if (!swipe) {
+        Hyprexpo::Animation::applyTo(size.get());
+        Hyprexpo::Animation::applyTo(pos.get());
         *size = pMonitor->m_size;
         *pos  = {0, 0};
 

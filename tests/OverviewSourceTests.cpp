@@ -921,6 +921,14 @@ int main() {
     expectOrder(passSource, "if (auto* const OV = overview())", "OV->fullRender()", "render pass null-checks before virtual rendering");
     expectContains(scrollingHeader, "PHLANIMVAR<float> m_transitionProgress", "scrolling session owns one compositor-managed transition value");
     expectContains(scrollingSource, "Animation::mgr()->createAnimation", "scrolling overview entry and exit use the compositor animation manager");
+    // The overview transitions can use their own animation config (plugin:hyprexpo:
+    // overview_anim_speed) instead of borrowing the compositor's windowsMove leaf, which
+    // also animates window moves. Every animated assignment has to apply it first.
+    for (const auto& [name, text] : std::initializer_list<std::pair<const char*, const std::string&>>{
+             {"grid entry", source}, {"grid swipe end", interactionSource}, {"grid close", renderSource}, {"scrolling", scrollingSource}})
+        expectContains(text, "Hyprexpo::Animation::applyTo", std::string{"overview transition applies its own animation config ("} + name + ")");
+    expectContains(configSource, "plugin:hyprexpo:overview_anim_speed", "the overview animation speed is a registered plugin config value");
+
     expectContains(scrollingSource, "transitionForSwipe(m_swipeClosing, m_swipeDelta", "scrolling swipe delta drives the visible transition progress");
     expectContains(scrollingSource, "CompatHyprlandAPI::intValue(\"plugin:hyprexpo:gesture_distance\")",
                    "scrolling swipe reads gesture distance through the Lua-compatible config boundary");

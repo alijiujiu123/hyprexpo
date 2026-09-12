@@ -1,5 +1,6 @@
 #include "HyprlandConfigCompat.hpp"
 #define HyprlandAPI CompatHyprlandAPI
+#include "OverviewAnimation.hpp"
 #include "OverviewInternal.hpp"
 #include "HyprexpoLogic.hpp"
 #include <hyprland/src/Compositor.hpp>
@@ -746,6 +747,8 @@ void COverview::onSwipeEnd(bool switchToSelection, double projectedDelta) {
         close(switchToSelection);
         return;
     }
+    Hyprexpo::Animation::applyTo(size.get());
+    Hyprexpo::Animation::applyTo(pos.get());
     *size = MON->m_size;
     *pos  = {0, 0};
 
