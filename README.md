@@ -157,6 +157,7 @@ plugin {
         gesture_distance = 200
         momentum_decel = 2000
         momentum_window_ms = 80
+        overview_anim_speed = 0
         cancel_key = escape
         show_cursor = 1
         show_pinned_windows = 0
@@ -180,6 +181,7 @@ hl.config({
             gesture_distance = 200,
             momentum_decel = 2000, -- Release-momentum deceleration; 0 = decide on position only.
             momentum_window_ms = 80,
+            overview_anim_speed = 0, -- open/close duration in 100ms steps; 0 = inherit windowsMove.
             cancel_key = "escape",
             show_cursor = 1,
             drag_drop_enable = 0, -- Disable moving windows by dragging workspace previews.
@@ -200,6 +202,15 @@ drag, a flick back takes it away again, and a finger that stops before lifting
 reads as slow. `momentum_decel = 0` restores the old pure-position rule.
 Set `momentum_debug = 1` to log one `HYPREXPO_SWIPE_RELEASE` line per release
 (delta, velocity, projection, distance) for calibration.
+
+`overview_anim_speed` controls the open/close animation duration in 100 ms steps
+(6 = 600 ms) and defaults to `0`, which keeps the historical behaviour of
+animating through the compositor's `windowsMove` leaf — the same leaf Hyprland
+uses when a window changes position, so tuning that leaf also slows window moves
+down. Any value above 0 uses an overview-owned animation config instead
+(easing ≈ the workspace landing curve), so the overview can be slowed down
+without touching window motion. Like the momentum keys it is read per animation
+start, so it can be changed at runtime.
 
 For ten fixed-grid slots, use `columns = 5`, `rows = 2`, `dynamic_grid = 0`,
 and `skip_empty = 0`. Empty workspaces remain selectable and can receive dragged
