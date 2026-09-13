@@ -40,6 +40,14 @@ struct SWorkspaceMethodSpec {
     std::string          error;
 };
 
+// Numeric workspace IDs a single workspace rule reserves: "11" or "r[11-20]".
+struct SWorkspaceIDRange {
+    int64_t first = 0;
+    int64_t last  = 0;
+
+    bool    operator==(const SWorkspaceIDRange&) const = default;
+};
+
 // Result of stripping an "all monitors" qualifier off an expo dispatcher arg.
 struct SExpoCommand {
     std::string command;            // the arg with the qualifier removed
@@ -193,6 +201,7 @@ int                      clampGridColumns(int64_t columns);
 int                      gridColumnsToIncludeWorkspace(int configuredColumns, int firstWorkspaceID, int activeWorkspaceID, int maxColumns, int fixedRows = 0);
 std::size_t              centeredWorkspaceBacktrack(std::size_t tileCount, int64_t activeWorkspaceID, std::optional<int64_t> lowestExistingID,
                                                     std::optional<int64_t> highestExistingID);
+std::optional<SWorkspaceIDRange> workspaceRuleIDRange(const std::string& workspaceString);
 int                      tileIndexFromPoint(double x, double y, double width, double height, int sideLength);
 int                      numberKeyToVisibleIndex(int number);
 ENumberKeyMode           numberKeyModeFromString(const std::string& mode);

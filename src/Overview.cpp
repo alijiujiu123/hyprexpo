@@ -15,6 +15,7 @@
 #include <hyprland/src/config/ConfigManager.hpp>
 #include <hyprland/src/config/shared/actions/ConfigActions.hpp>
 #include <hyprland/src/config/shared/animation/AnimationTree.hpp>
+#include <hyprland/src/config/shared/workspace/WorkspaceRuleManager.hpp>
 #include <hyprland/src/desktop/state/FocusState.hpp>
 #include <hyprland/src/desktop/view/Window.hpp>
 #include <hyprland/src/layout/LayoutManager.hpp>
@@ -1148,6 +1149,24 @@ COverview::COverview(PHLWORKSPACE startedOn_, PHLMONITOR monitor_, bool swipe_, 
 
                 lowestExistingID  = lowestExistingID ? std::min(*lowestExistingID, workspace->m_id) : workspace->m_id;
                 highestExistingID = highestExistingID ? std::max(*highestExistingID, workspace->m_id) : workspace->m_id;
+            }
+
+            // Workspace rules reserve IDs for this monitor even while those workspaces are empty
+            // and therefore do not exist, so a range such as 11-20 keeps its real floor (#133).
+            for (const auto& rule : Config::workspaceRuleMgr()->getAllWorkspaceRules()) {
+                if (!rule || !rule->isEnabled() || rule->m_monitor.empty())
+                    continue;
+
+                const auto range = Hyprexpo::workspaceRuleIDRange(rule->m_workspaceString);
+                if (!range)
+                    continue;
+
+                const auto boundMonitor = State::monitorState()->query().relativeTo(PMONITOR).configString(rule->m_monitor).run();
+                if (!boundMonitor || boundMonitor != PMONITOR)
+                    continue;
+
+                lowestExistingID  = lowestExistingID ? std::min(*lowestExistingID, range->first) : range->first;
+                highestExistingID = highestExistingID ? std::max(*highestExistingID, range->last) : range->last;
             }
         }
 

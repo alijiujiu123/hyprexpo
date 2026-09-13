@@ -41,6 +41,17 @@ For example, with workspaces 1–5 bound to one monitor and 6–9 to another,
 The remaining tiles are padding; selecting them does not create a workspace.
 `skip_empty = 1` retains its existing next-empty-workspace tiles and ignores the cap.
 
+## Ranges that do not start at 1
+
+`center current` keeps the grid inside the monitor's own workspace range. That
+range is the union of the workspaces that currently exist on the monitor and
+the IDs its workspace rules reserve, for example `workspace = 11, monitor:DP-3`
+or `workspace = r[11-20], monitor:DP-3`. Reserved IDs count even while they are
+empty and not yet created, so a monitor bound to 11–20 always starts its grid at
+11: opening a `columns = 3` overview on workspace 12 shows 11–19 with 11 at the
+first tile rather than 12–20. Named and compound rules such as `name:mail` or
+`r[1-5]w[1]` reserve no IDs.
+
 `first <workspace>` anchors the grid to a fixed workspace and counts upward, so
 the configured `columns` normally bound how many workspaces are visible. When
 the currently active workspace sits past the last tile (for example `first 1`
