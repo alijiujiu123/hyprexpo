@@ -422,6 +422,15 @@ int main() {
     const auto helperPos = centerBranch.find("Hyprexpo::centeredWorkspaceBacktrack(");
     expect(helperPos != std::string::npos && boundsScanPos != std::string::npos && boundsScanPos < centerBranchStart + helperPos,
            "center-current traversal uses the pure backtrack helper after collecting bounds");
+    const auto ruleScanPos = overviewConstructor.find("Config::workspaceRuleMgr()->getAllWorkspaceRules()", boundsScanPos);
+    expect(boundsScanPos != std::string::npos && ruleScanPos != std::string::npos && ruleScanPos < centerBranchStart + helperPos,
+           "center-current bounds include workspace IDs reserved for the monitor by workspace rules before backtracking");
+    expect(ruleScanPos != std::string::npos && overviewConstructor.find("rule->isEnabled()", ruleScanPos) < centerBranchStart + helperPos,
+           "disabled workspace rules reserve no center-current bounds");
+    expect(ruleScanPos != std::string::npos && overviewConstructor.find("configString(rule->m_monitor)", ruleScanPos) < centerBranchStart + helperPos,
+           "reserved bounds resolve rule monitors through Hyprland's monitor query like its own selector");
+    expect(ruleScanPos != std::string::npos && overviewConstructor.find("Hyprexpo::workspaceRuleIDRange(rule->m_workspaceString)", ruleScanPos) < centerBranchStart + helperPos,
+           "reserved bounds parse rule workspace strings through the pure helper");
     expect(centerBranch.find("for (size_t i = 1; i <= backtrackTarget; ++i)") != std::string::npos,
            "center-current lower scan includes the full helper target");
     expect(centerBranch.find("if (currentID >= firstID)") != std::string::npos && centerBranch.find("if (i > 0 && currentID <= firstID)") != std::string::npos,

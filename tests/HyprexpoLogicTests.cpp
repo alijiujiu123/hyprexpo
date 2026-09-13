@@ -813,6 +813,29 @@ int main() {
     expect(centeredWorkspaceBacktrack(9, std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::min(), std::numeric_limits<int64_t>::max()) == 8,
            "center-current handles the full signed workspace range without overflow");
 
+    // Issue #133: a monitor whose range starts above 1 keeps its rule-reserved floor even
+    // when the lowest workspace is currently empty and therefore does not exist.
+    expect(workspaceRuleIDRange("11") == std::optional<SWorkspaceIDRange>{{11, 11}}, "numeric workspace rules reserve a single ID");
+    expect(workspaceRuleIDRange(" 11 ") == std::optional<SWorkspaceIDRange>{{11, 11}}, "numeric workspace rules tolerate surrounding whitespace");
+    expect(workspaceRuleIDRange("r[11-20]") == std::optional<SWorkspaceIDRange>{{11, 20}}, "range workspace rules reserve their whole span");
+    expect(workspaceRuleIDRange(" r[ 11 - 20 ] ") == std::optional<SWorkspaceIDRange>{{11, 20}}, "range workspace rules tolerate inner whitespace");
+    expect(workspaceRuleIDRange("r[7-7]") == std::optional<SWorkspaceIDRange>{{7, 7}}, "single-ID ranges reserve that ID");
+    expect(!workspaceRuleIDRange(""), "empty workspace rules reserve nothing");
+    expect(!workspaceRuleIDRange("name:foo"), "named workspace rules reserve no numeric IDs");
+    expect(!workspaceRuleIDRange("special:scratch"), "special workspace rules reserve no numeric IDs");
+    expect(!workspaceRuleIDRange("0"), "workspace ID zero is never reserved");
+    expect(!workspaceRuleIDRange("-3"), "negative workspace IDs are never reserved");
+    expect(!workspaceRuleIDRange("+3"), "signed workspace strings are not plain IDs");
+    expect(!workspaceRuleIDRange("r[20-11]"), "reversed ranges reserve nothing");
+    expect(!workspaceRuleIDRange("r[0-5]"), "ranges starting below one reserve nothing");
+    expect(!workspaceRuleIDRange("r[1-5]w[1]"), "compound static selectors reserve nothing");
+    expect(!workspaceRuleIDRange("r[1-]"), "open-ended ranges reserve nothing");
+    expect(!workspaceRuleIDRange("r[a-b]"), "non-numeric ranges reserve nothing");
+    expect(!workspaceRuleIDRange("99999999999999999999"), "overflowing workspace IDs reserve nothing");
+    expect(!workspaceRuleIDRange("r[1-99999999999999999999]"), "overflowing range bounds reserve nothing");
+    expect(centeredWorkspaceBacktrack(9, 12, 11, 20) == 1, "a reserved floor of 11 pulls a 3x3 grid opened on 12 back to workspace 11");
+    expect(centeredWorkspaceBacktrack(9, 12, 12, 20) == 0, "without the reserved floor the same grid starts at 12");
+
     expect(HyprexpoConfig::SHOW_PINNED_WINDOWS_DEFAULT == 0, "pinned windows are hidden from previews by default");
     expect(!shouldAbortOverviewCloseForWorkspaceMove(true, true), "pinned moves on the overview monitor preserve the close animation");
     expect(shouldAbortOverviewCloseForWorkspaceMove(false, true), "non-pinned moves on the overview monitor abort the close animation");
