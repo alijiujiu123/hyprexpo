@@ -79,8 +79,10 @@ inline constexpr int         DIRTY_MAX_PER_SECOND_DEFAULT = 60;
 // freezes on its first frame. Measured: such a player starts producing frames again as soon as
 // the grid drives it. Cost: those clients really do render at that cadence.
 inline constexpr int         DIRTY_DRIVE_DEFAULT          = 1;
-// Log a per-second HYPREXPO_DIRTY line (commits seen, tiles captured) for calibration.
-inline constexpr int         DIRTY_DEBUG_DEFAULT          = 0;
+// On by default: draws the workspace label of every tile that is being recaptured in red, and
+// logs a per-second HYPREXPO_DIRTY line (commits/recaptures/pending/per workspace) so a tile
+// that keeps being rendered while nothing in it moves is visible and countable.
+inline constexpr int         DIRTY_DEBUG_DEFAULT          = 1;
 inline constexpr int         GESTURE_FINGERS_DEFAULT         = 0;
 inline constexpr const char* GESTURE_DIRECTION_DEFAULT       = "up";
 inline constexpr const char* CANCEL_KEY_DEFAULT              = "escape";

@@ -113,7 +113,7 @@ plugin {
 | `plugin:hyprexpo:dirty_cooldown_ms` | int | minimum delay between two recaptures of the same tile (`33` ≈ 30 fps per tile) | `33` |
 | `plugin:hyprexpo:dirty_max_per_frame` | int | changed tiles recaptured within one frame | `2` |
 | `plugin:hyprexpo:dirty_max_per_second` | int | recaptures of changed tiles per second, shared by every tile; `0` disables the cap | `60` |
-| `plugin:hyprexpo:dirty_debug` | bool int | append per-second counters to `$XDG_RUNTIME_DIR/hyprexpo-dirty.log` | `0` |
+| `plugin:hyprexpo:dirty_debug` | bool int | mark live tiles (workspace label drawn in red) and append per-second counters to `$XDG_RUNTIME_DIR/hyprexpo-dirty.log` | `1` |
 
 ### Live tiles for workspaces that are actually moving
 
