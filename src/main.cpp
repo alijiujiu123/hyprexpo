@@ -150,6 +150,14 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     // Dirty tile refresh is an optimisation, not a requirement: an older or patched
     // compositor without this symbol keeps the previous behaviour instead of failing to
     // load the plugin.
+    //
+    // While loaded, this hook occupies the symbol: Hyprland allows one hook per function
+    // (`CHookSystem::m_activeHooks`, "function is already hooked"), so any other plugin that
+    // wants to react to window commits has to hook something else - `CWLSurfaceResource::
+    // commitState` is the same event one level down and is free. A second hook on this one
+    // fails silently as far as the session is concerned, and this machine runs with the
+    // compositor's own log switched off, so the failure is only visible in whichever
+    // plugin's own log file reports it.
     FNS = HyprlandAPI::findFunctionsByName(PHANDLE, "_ZN7Desktop4View7CWindow12commitWindowEv");
     if (FNS.empty())
         Log::logger->log(Log::ERR, "[hyprexpo] no fn for hook CWindow::commitWindow, dirty tile refresh disabled");
