@@ -411,6 +411,7 @@ void COverview::fullRender() {
         Render::GL::g_pHyprOpenGL->renderRect(backgroundBox, CHyprColor{0x00000066}, {});
     }
 
+    static auto* const* PDIRTYDEBUG = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:dirty_debug")->getDataStaticPtr();
     static auto* const* PTILEROUND  = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:tile_rounding")->getDataStaticPtr();
     static auto* const* PTOUNDPWR   = (Hyprlang::FLOAT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:tile_rounding_power")->getDataStaticPtr();
     static auto* const* PTILEROUNDF = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:tile_rounding_focus")->getDataStaticPtr();
@@ -460,6 +461,17 @@ void COverview::fullRender() {
 
             CRegion damage{0, 0, INT16_MAX, INT16_MAX};
             Render::GL::g_pHyprOpenGL->renderTextureInternal(images[id].fb->getTexture(), texbox, {.damage = &damage, .a = alpha, .round = tileRound, .roundingPower = ROUND_PWR});
+
+            // Calibration aid (dirty_debug = 1): a small marker on tiles that were recaptured
+            // just now, so a tile that keeps being live-rendered when nothing in it moves is
+            // visible at a glance. Remove with dirty_debug = 0.
+            if (**PDIRTYDEBUG && id < (int)lastTileCapture.size() &&
+                std::chrono::steady_clock::now() - lastTileCapture[id] < std::chrono::milliseconds(500)) {
+                const int SIZE_PX = std::max(6, (int)std::lround(6.0 * MON->m_scale));
+                CBox marker{{texbox.x + SIZE_PX, texbox.y + SIZE_PX}, {SIZE_PX * 2.0, SIZE_PX * 2.0}};
+                marker.round();
+                Render::GL::g_pHyprOpenGL->renderRect(marker, CHyprColor{1.0, 0.0, 0.6, 0.85}, {});
+            }
         }
     }
 
