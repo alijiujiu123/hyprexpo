@@ -16,11 +16,17 @@
 #include <hyprland/src/render/OpenGL.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/helpers/time/Time.hpp>
+#include <hyprland/src/desktop/view/GlobalViewMethods.hpp>
+#include <hyprland/src/desktop/view/Window.hpp>
+#include <hyprland/src/protocols/core/Compositor.hpp>
 #include <hyprland/src/state/WorkspaceState.hpp>
 #undef private
 #undef protected
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
+#include <format>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -213,6 +219,131 @@ void COverview::onPreRender() {
         damageDirty = false;
         redrawID(closing ? (closeOnID == -1 ? openedID : closeOnID) : openedID);
     }
+
+    driveHiddenWorkspaces();
+    refreshDirtyTiles();
+}
+
+// The visible workspace's clients are handed wl_surface.frame callbacks every frame and their
+// commits damage the screen, which is why its tile is live without any of the throttling below.
+// Everything else is the same treatment applied to the workspaces shown in the grid: hand out
+// their callbacks so their clients keep drawing, and let the dirty path recapture at the rate
+// those clients produce frames.
+void COverview::driveHiddenWorkspaces() {
+    const auto NOW = std::chrono::steady_clock::now();
+    if (NOW - lastDrive < std::chrono::milliseconds(8))
+        return;
+
+    lastDrive = NOW;
+
+    const auto TP = Time::steadyNow();
+    for (auto& image : images) {
+        const auto WORKSPACE = image.pWorkspace;
+        if (!WORKSPACE || WORKSPACE->m_visible)
+            continue;
+
+        for (const auto& VIEW : Desktop::View::getViewsForWorkspace(WORKSPACE)) {
+            if (!VIEW || !VIEW->wlSurface() || !VIEW->wlSurface()->resource())
+                continue;
+
+            const auto WINDOW = Desktop::View::CWindow::fromView(VIEW);
+            if (!WINDOW || !WINDOW->m_isMapped || WINDOW->isHidden())
+                continue;
+
+            VIEW->wlSurface()->resource()->frame(TP);
+        }
+    }
+}
+
+void COverview::refreshDirtyTiles() {
+    static auto* const* PENABLED  = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:dirty_refresh")->getDataStaticPtr();
+    static auto* const* PCOOLDOWN = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:dirty_cooldown_ms")->getDataStaticPtr();
+    static auto* const* PBUDGET   = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:dirty_max_per_frame")->getDataStaticPtr();
+    static auto* const* PMAXPS    = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:dirty_max_per_second")->getDataStaticPtr();
+    static auto* const* PDEBUG    = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:dirty_debug")->getDataStaticPtr();
+
+    const auto NOW = std::chrono::steady_clock::now();
+
+    if (**PDEBUG && NOW - dirtyLogTime >= std::chrono::seconds(1)) {
+        std::string perWorkspace;
+        for (const auto& [WSID, COUNT] : dirtyCommitsByWorkspace) {
+            if (!perWorkspace.empty())
+                perWorkspace += ',';
+            perWorkspace += std::format("{}:{}", WSID, COUNT);
+        }
+
+        const std::string LINE = std::format("ms={} commits={} recaptures={} pending={} tiles={} per_ws={}", std::chrono::duration_cast<std::chrono::milliseconds>(NOW - dirtyLogTime).count(),
+                                             dirtyCommitsSeen, dirtyTilesRecaptured, contentDirtyWorkspaces.size(), images.size(),
+                                             perWorkspace.empty() ? "-" : perWorkspace);
+
+        Log::logger->log(Log::INFO, "HYPREXPO_DIRTY {}", LINE);
+
+        // The compositor log level can filter INFO out, so mirror the counters into a file of
+        // our own (same trick edgebounce uses): that is the thing to watch when calibrating.
+        static const auto PATH = [] {
+            const char* RUNTIME = std::getenv("XDG_RUNTIME_DIR");
+            return std::string{RUNTIME ? RUNTIME : "/tmp"} + "/hyprexpo-dirty.log";
+        }();
+
+        constexpr std::uintmax_t MAX_BYTES = 64 * 1024;
+        std::error_code          ERR;
+        const auto               SIZE     = std::filesystem::file_size(PATH, ERR);
+        const bool               TRUNCATE = !ERR && SIZE > MAX_BYTES;
+
+        if (std::ofstream FILE{PATH, TRUNCATE ? std::ios::trunc : std::ios::app}; FILE)
+            FILE << LINE << '\n';
+
+        dirtyCommitsSeen     = 0;
+        dirtyTilesRecaptured = 0;
+        dirtyCommitsByWorkspace.clear();
+        dirtyLogTime = NOW;
+    }
+
+    if (!**PENABLED || closing || contentDirtyWorkspaces.empty())
+        return;
+
+    const auto COOLDOWN = std::chrono::milliseconds(std::max<Hyprlang::INT>(0, **PCOOLDOWN));
+    const auto MAXPS    = std::max<Hyprlang::INT>(0, **PMAXPS);
+    int        budget   = std::max<Hyprlang::INT>(0, **PBUDGET);
+    bool       captured = false;
+
+    if (NOW - dirtyWindowStart >= std::chrono::seconds(1)) {
+        dirtyWindowStart = NOW;
+        dirtyWindowCount = 0;
+    }
+
+    std::vector<int64_t> remaining;
+    remaining.reserve(contentDirtyWorkspaces.size());
+
+    for (size_t i = 0; i < contentDirtyWorkspaces.size(); ++i) {
+        const int TILE = tileForWorkspaceID(contentDirtyWorkspaces[i]);
+
+        // Marked tiles that are not part of this grid (workspace removed, grid changed)
+        // are dropped; everything that is merely throttled waits for the next frame.
+        if (TILE < 0 || TILE >= (int)lastTileCapture.size())
+            continue;
+
+        if (closing || budget <= 0 || (MAXPS > 0 && dirtyWindowCount >= (uint64_t)MAXPS) || NOW - lastTileCapture[TILE] < COOLDOWN) {
+            remaining.insert(remaining.end(), contentDirtyWorkspaces.begin() + i, contentDirtyWorkspaces.end());
+            break;
+        }
+
+        redrawID(TILE);
+        lastTileCapture[TILE] = NOW;
+        ++dirtyTilesRecaptured;
+        ++dirtyWindowCount;
+        --budget;
+        captured = true;
+    }
+
+    contentDirtyWorkspaces = std::move(remaining);
+
+    if (!captured)
+        return;
+
+    damage();
+    if (const auto MON = pMonitor.lock())
+        MON->scheduleFrame();
 }
 
 void COverview::onWorkspaceChange() {

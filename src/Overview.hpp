@@ -51,8 +51,11 @@ class COverview final : public IOverviewSession {
     bool shouldRenderOverviewForMonitor(const PHLMONITOR& monitor) const;
     // Animation callbacks are handed the variable that fired, not the owner.
     // With several overviews alive the owner has to be resolved from it.
-    bool ownsAnimVar(const WP<Hyprutils::Animation::CBaseAnimatedVariable>& var) const;
-    void onWindowMoveToWorkspace(const PHLWINDOW& window, const PHLWORKSPACE& workspace);
+    bool       ownsAnimVar(const WP<Hyprutils::Animation::CBaseAnimatedVariable>& var) const;
+    void       onWindowMoveToWorkspace(const PHLWINDOW& window, const PHLWORKSPACE& workspace);
+    // A window on an invisible workspace committed new pixels: this tile needs a recapture.
+    // Returns false when this overview has no tile for that workspace.
+    bool       markWorkspaceContentDirty(int64_t workspaceID);
 
     void resetSwipe() override;
     void onSwipeUpdate(double delta) override;
@@ -143,6 +146,10 @@ class COverview final : public IOverviewSession {
     void       redrawDraggedWorkspace(int64_t workspaceID);
     void       queueRedrawID(int id);
     void       flushQueuedRedraws();
+    // Recaptures the tiles whose workspaces changed since the previous frame, newest first,
+    // bounded by dirty_cooldown_ms / dirty_max_per_frame.
+    void       refreshDirtyTiles();
+    void       driveHiddenWorkspaces();
     PHLWINDOW  windowAtTilePoint(int id, const Vector2D& localPoint) const;
     Vector2D   tilePointToWorkspacePoint(int id, const Vector2D& localPoint) const;
     PHLWORKSPACE ensureWorkspaceForTile(int id);
@@ -169,6 +176,17 @@ class COverview final : public IOverviewSession {
     std::vector<int64_t>         settlingRedrawWorkspaceIDs;
     int                          redrawSettleTicks = 0;
     SP<CEventLoopTimer>          redrawSettleTimer;
+
+    // Workspaces whose hidden windows committed damage since their tile was last captured.
+    std::vector<int64_t>                      contentDirtyWorkspaces;
+    std::vector<std::chrono::steady_clock::time_point> lastTileCapture;
+    std::chrono::steady_clock::time_point     lastDrive{};
+    uint64_t                                  dirtyCommitsSeen    = 0;
+    uint64_t                                  dirtyTilesRecaptured = 0;
+    std::vector<std::pair<int64_t, uint64_t>> dirtyCommitsByWorkspace;
+    std::chrono::steady_clock::time_point     dirtyWindowStart{};
+    uint64_t                                  dirtyWindowCount = 0;
+    std::chrono::steady_clock::time_point     dirtyLogTime{};
 
     std::vector<SWorkspaceImage> images;
 

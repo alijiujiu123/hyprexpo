@@ -829,6 +829,46 @@ bool moveOverviewFocusAcrossMonitors(IOverviewSession* source, Hyprexpo::EDirect
     return true;
 }
 
+void markWorkspaceContentDirty(const PHLWORKSPACE& workspace) {
+    if (!workspace)
+        return;
+
+    for (const auto& session : g_overviews) {
+        // Scrolling sessions have their own per-target capture budget; only grid tiles are
+        // refreshed from here.
+        auto* const OVERVIEW = dynamic_cast<COverview*>(session.get());
+        if (!OVERVIEW || !OVERVIEW->markWorkspaceContentDirty(workspace->m_id))
+            continue;
+
+        // Damage, do not just schedule: with VFR the compositor renders nothing while the
+        // screen is otherwise quiet (a gesture that is being held still, an idle cursor), and
+        // then the tile this commit just made stale would never be recaptured. Damage also
+        // repaints the tile once it has been.
+        OVERVIEW->damage();
+    }
+}
+
+bool COverview::markWorkspaceContentDirty(int64_t workspaceID) {
+    if (closing || workspaceID == WORKSPACE_INVALID)
+        return false;
+
+    if (tileForWorkspaceID(workspaceID) < 0)
+        return false;
+
+    ++dirtyCommitsSeen;
+
+    const auto KNOWN = std::ranges::find(dirtyCommitsByWorkspace, workspaceID, &std::pair<int64_t, uint64_t>::first);
+    if (KNOWN != dirtyCommitsByWorkspace.end())
+        ++KNOWN->second;
+    else
+        dirtyCommitsByWorkspace.emplace_back(workspaceID, 1);
+
+    if (std::find(contentDirtyWorkspaces.begin(), contentDirtyWorkspaces.end(), workspaceID) == contentDirtyWorkspaces.end())
+        contentDirtyWorkspaces.push_back(workspaceID);
+
+    return true;
+}
+
 void forEachOverview(const std::function<void(IOverviewSession&)>& fn) {
     std::vector<std::pair<uint64_t, uint64_t>> snapshot;
     snapshot.reserve(g_overviews.size());
@@ -1328,6 +1368,9 @@ COverview::COverview(PHLWORKSPACE startedOn_, PHLMONITOR monitor_, bool swipe_, 
     }
 
     openedID = currentid;
+
+    lastTileCapture.assign(images.size(), std::chrono::steady_clock::now());
+    dirtyLogTime = std::chrono::steady_clock::now();
 
     ensureOverviewCursorVisible(true, true);
 

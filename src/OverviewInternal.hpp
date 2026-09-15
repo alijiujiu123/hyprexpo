@@ -64,6 +64,10 @@ SHyprGradientSpec parseGradientSpec(const std::string& inRaw);
 bool isGradientBorderSpec(const std::string& borderSpec);
 SP<Render::ITexture> renderNumberTexture(const std::string& text, const CHyprColor& color, const Vector2D& bufferSize, float scale, int fontSize);
 
+// Called from the window commit hook: hands a hidden workspace's new content to every live
+// grid overview that has a tile for it, and schedules the frame that will recapture it.
+void markWorkspaceContentDirty(const PHLWORKSPACE& workspace);
+
 SWorkspacePreviewState applyWorkspacePreviewState(const PHLWORKSPACE& workspace);
 void restoreWorkspacePreviewState(const PHLWORKSPACE& workspace, const SWorkspacePreviewState& state);
 std::vector<std::pair<PHLWORKSPACE, SWorkspacePreviewState>> applyExclusiveWorkspacePreviewState(const PHLWORKSPACE& workspace);

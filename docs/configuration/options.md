@@ -109,6 +109,55 @@ plugin {
 | `plugin:hyprexpo:show_pinned_windows` | bool int | render pinned/PiP windows in workspace preview thumbnails; default `0` hides them from previews only | `0` |
 | `plugin:hyprexpo:scrolling_thumbnail_budget` | int | scrolling thumbnail budget multiplier `m`, clamped to `1..16`; total capture pixels are bounded by `m * W * H` for monitor size `W x H` | `4` |
 | `plugin:hyprexpo:scrolling_input_debug` | bool int | enable deterministic input and loaded native mutation acceptance dispatchers; leave disabled outside disposable testing | `0` |
+| `plugin:hyprexpo:dirty_refresh` | bool int | recapture a grid tile when its workspace produced new surface damage (see below) | `1` |
+| `plugin:hyprexpo:dirty_cooldown_ms` | int | minimum delay between two recaptures of the same tile (`33` ≈ 30 fps per tile) | `33` |
+| `plugin:hyprexpo:dirty_max_per_frame` | int | changed tiles recaptured within one frame | `2` |
+| `plugin:hyprexpo:dirty_max_per_second` | int | recaptures of changed tiles per second, shared by every tile; `0` disables the cap | `60` |
+| `plugin:hyprexpo:dirty_debug` | bool int | append per-second counters to `$XDG_RUNTIME_DIR/hyprexpo-dirty.log` | `0` |
+
+### Live tiles for workspaces that are actually moving
+
+A grid tile is a snapshot taken when the overview opens. Hyprland renders only the visible
+workspace, so a hidden workspace's clients get no `wl_surface.frame` callbacks and commit
+only when something really changed there — which makes those commits a usable "this
+workspace is alive" signal. `dirty_refresh` (on by default) hooks the window commit path
+and recaptures a tile when a window on its workspace commits damage, so the workspaces that
+are moving stay live while the frozen ones keep costing nothing.
+
+What this does and does not do:
+
+- Workspaces whose content pushes updates on its own clock (video players with their own
+  timing, browsers with running timers, anything that redraws while hidden) become live
+  previews.
+- Workspaces whose clients are animation-callback paced (most toolkits, browsers with
+  frame-callback driven animation) are frozen by Wayland itself while hidden: they have no
+  callbacks to drive them, so there is nothing to detect and nothing to show. Driving them
+  would mean sending frame callbacks into every hidden workspace, which renders the whole
+  desktop continuously — that is the expensive path this option avoids.
+- One recapture is a full offscreen render of that workspace at monitor resolution, and it
+  also keeps the compositor rendering frames it would otherwise skip. Measured on a
+  2880x1800 screen (Radeon 780M, full-screen windows in the tile): ~1.8 ms of GPU per
+  recapture is pixel work, ~1.7 ms per recapture is the compositor frame it forces, so one
+  tile at the full ~128/s costs roughly +20 GPU points on an already quiet desktop. That is
+  what `dirty_cooldown_ms`, `dirty_max_per_frame` and `dirty_max_per_second` bound.
+- `dirty_max_per_second` is the knob that keeps "many workspaces moving at once" bounded
+  independently of how many tiles are dirty.
+- The client's own commit rate is the ceiling: a tile cannot show more new frames than the
+  window in it produces, so raising the rate past that only recaptures identical content.
+- `dirty_debug = 1` writes `commits=N recaptures=N pending=N tiles=N per_ws=<id>:<count>`
+  into `$XDG_RUNTIME_DIR/hyprexpo-dirty.log` once per second, which is how the knobs are
+  calibrated and how you can see which workspaces are actually producing content while
+  hidden.
+
+```ini
+plugin {
+    hyprexpo {
+        dirty_refresh = 1
+        dirty_cooldown_ms = 33
+        dirty_max_per_second = 60
+    }
+}
+```
 
 ### Rectangular fixed grids
 

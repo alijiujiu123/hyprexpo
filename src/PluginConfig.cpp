@@ -65,6 +65,18 @@ void registerHyprexpoConfigValues() {
     addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:overview_anim_speed", "overview open/close duration in 100ms steps (0 = inherit windowsMove)",
                                                          HyprexpoConfig::OVERVIEW_ANIM_SPEED_DEFAULT,
                                                          Config::Values::SIntValueOptions{.min = 0, .max = 50}));
+    addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:dirty_refresh", "recapture tiles whose workspace produced new surface damage",
+                                                         HyprexpoConfig::DIRTY_REFRESH_DEFAULT, Config::Values::SIntValueOptions{.min = 0, .max = 1}));
+    addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:dirty_cooldown_ms", "minimum delay between two recaptures of the same tile",
+                                                         HyprexpoConfig::DIRTY_COOLDOWN_MS_DEFAULT, Config::Values::SIntValueOptions{.min = 0, .max = 5000}));
+    addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:dirty_max_per_frame", "changed tiles recaptured within one frame",
+                                                         HyprexpoConfig::DIRTY_MAX_PER_FRAME_DEFAULT, Config::Values::SIntValueOptions{.min = 0, .max = 64}));
+    addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:dirty_max_per_second", "recaptures of changed tiles per second (0 = unlimited)",
+                                                         HyprexpoConfig::DIRTY_MAX_PER_SECOND_DEFAULT, Config::Values::SIntValueOptions{.min = 0, .max = 1000}));
+    addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:dirty_drive_hidden", "hand frame callbacks to hidden workspaces so their tiles keep moving",
+                                                         HyprexpoConfig::DIRTY_DRIVE_DEFAULT, Config::Values::SIntValueOptions{.min = 0, .max = 1}));
+    addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:dirty_debug", "log per-second dirty-refresh counters",
+                                                         HyprexpoConfig::DIRTY_DEBUG_DEFAULT, Config::Values::SIntValueOptions{.min = 0, .max = 1}));
     addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:gesture_fingers", "fingers for the swipe gesture (0 disables)", HyprexpoConfig::GESTURE_FINGERS_DEFAULT,
                                                          Config::Values::SIntValueOptions{.min = 0, .max = 9}));
     addConfigValue(makeShared<Config::Values::CStringValue>("plugin:hyprexpo:gesture_direction", "swipe direction for the gesture", HyprexpoConfig::GESTURE_DIRECTION_DEFAULT,

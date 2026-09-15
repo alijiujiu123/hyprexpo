@@ -52,6 +52,35 @@ inline constexpr int         MOMENTUM_DEBUG_DEFAULT          = 0;
 // Overview open/close animation duration in 100 ms steps (0 = inherit the compositor's
 // `windowsMove` leaf, which also animates window moves).
 inline constexpr int         OVERVIEW_ANIM_SPEED_DEFAULT     = 0;
+// Recapture a tile when its workspace produced surface damage while the overview is open.
+// Hyprland renders only the visible workspace, so a hidden workspace's clients commit
+// exactly when they have something new to show (its commits carry damage or they are not
+// commits at all: a commit without damage leaves SSurfaceState::updateState clearing
+// damage, see `CWindow::commitWindow`). Recapturing only those tiles keeps the workspaces
+// that are actually moving live at a bounded cost. 0 restores the old behaviour, where
+// only the opened workspace's tile is refreshed.
+inline constexpr int         DIRTY_REFRESH_DEFAULT        = 1;
+// Minimum interval between two recaptures of the same tile, in ms. 33 keeps a moving tile
+// at roughly 30 updated frames per second; the client's own commit rate is the ceiling, so
+// going far below that mostly repeats frames it has not replaced yet.
+inline constexpr int         DIRTY_COOLDOWN_MS_DEFAULT    = 33;
+// Upper bound on how many changed tiles are recaptured within one frame.
+inline constexpr int         DIRTY_MAX_PER_FRAME_DEFAULT  = 2;
+// Upper bound on how many recaptures of changed tiles run within one second, shared by every
+// tile. Measured on a 2880x1800 screen (Radeon 780M, full-screen windows in the tile): ~1.8 ms
+// of GPU per recapture is pixel work and ~1.7 ms is the compositor frame the recapture itself
+// forces, so one tile at the full ~128/s costs roughly +20 GPU points. This cap, not the
+// cooldown, is what bounds "many workspaces moving at once". 0 disables it.
+inline constexpr int         DIRTY_MAX_PER_SECOND_DEFAULT = 60;
+// Hand wl_surface.frame callbacks to the workspaces shown in the grid, at the tile refresh
+// cadence. Hyprland only sends them to the visible workspace: a client already drawing on its
+// own clock keeps going without them, but one that was started while hidden (a player opened
+// on a background workspace, a page that paused) waits for a callback that never comes and
+// freezes on its first frame. Measured: such a player starts producing frames again as soon as
+// the grid drives it. Cost: those clients really do render at that cadence.
+inline constexpr int         DIRTY_DRIVE_DEFAULT          = 1;
+// Log a per-second HYPREXPO_DIRTY line (commits seen, tiles captured) for calibration.
+inline constexpr int         DIRTY_DEBUG_DEFAULT          = 0;
 inline constexpr int         GESTURE_FINGERS_DEFAULT         = 0;
 inline constexpr const char* GESTURE_DIRECTION_DEFAULT       = "up";
 inline constexpr const char* CANCEL_KEY_DEFAULT              = "escape";
