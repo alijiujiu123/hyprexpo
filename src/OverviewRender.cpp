@@ -746,22 +746,21 @@ void COverview::fullRender() {
                 }
 
                 const int st = resolveState((int)id);
+
+                // dirty_debug aid: a tile whose capture is less than 500 ms old is being
+                // rendered live right now, so its label is drawn in red. That makes a tile
+                // that keeps being recaptured while nothing in it moves visible at a glance.
+                const bool LIVE = **PDIRTYDEBUG && id < (int)lastTileCapture.size() &&
+                    std::chrono::steady_clock::now() - lastTileCapture[id] < std::chrono::milliseconds(500);
+
                 if (!label.empty()) {
-                    if (showWorkspaceNumbers)
-                        renderLabel(images[id].labelTexDefault, images[id].labelSizeDefault, label, CHyprColor{(uint64_t)**PWSNUMCOL}, 1.0f, tile, labelAnchor, **PLABELOX, **PLABELOY,
-                                    labelFontSize);
-                    else if (st == 1)
-                        renderLabel(images[id].labelTexHover, images[id].labelSizeHover, label, CHyprColor{(uint64_t)**PLCOLHOV}, **PLSCALEH, tile, labelAnchor, **PLABELOX,
-                                    **PLABELOY, labelFontSize);
-                    else if (st == 2)
-                        renderLabel(images[id].labelTexFocus, images[id].labelSizeFocus, label, CHyprColor{(uint64_t)**PLCOLFOC}, **PLSCALEF, tile, labelAnchor, **PLABELOX,
-                                    **PLABELOY, labelFontSize);
-                    else if (st == 3)
-                        renderLabel(images[id].labelTexCurrent, images[id].labelSizeCurrent, label, CHyprColor{(uint64_t)**PLCOLCUR}, 1.0f, tile, labelAnchor, **PLABELOX,
-                                    **PLABELOY, labelFontSize);
-                    else
-                        renderLabel(images[id].labelTexDefault, images[id].labelSizeDefault, label, CHyprColor{(uint64_t)**PLCOLDEF}, 1.0f, tile, labelAnchor, **PLABELOX,
-                                    **PLABELOY, labelFontSize);
+                    const bool   NUM   = showWorkspaceNumbers;
+                    auto&        TEX   = LIVE ? images[id].labelTexLive : (NUM ? images[id].labelTexDefault : st == 1 ? images[id].labelTexHover : st == 2 ? images[id].labelTexFocus : st == 3 ? images[id].labelTexCurrent : images[id].labelTexDefault);
+                    auto&        SZ    = LIVE ? images[id].labelSizeLive : (NUM ? images[id].labelSizeDefault : st == 1 ? images[id].labelSizeHover : st == 2 ? images[id].labelSizeFocus : st == 3 ? images[id].labelSizeCurrent : images[id].labelSizeDefault);
+                    const uint64_t COL = LIVE ? 0xFFFF2222 : (uint64_t)(NUM ? **PWSNUMCOL : st == 1 ? **PLCOLHOV : st == 2 ? **PLCOLFOC : st == 3 ? **PLCOLCUR : **PLCOLDEF);
+                    const float  SCALE = (!NUM && st == 1) ? **PLSCALEH : (!NUM && st == 2) ? **PLSCALEF : 1.0f;
+
+                    renderLabel(TEX, SZ, label, CHyprColor{COL}, SCALE, tile, labelAnchor, **PLABELOX, **PLABELOY, labelFontSize);
                 }
             }
 

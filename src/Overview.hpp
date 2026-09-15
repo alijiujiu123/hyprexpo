@@ -108,6 +108,9 @@ class COverview final : public IOverviewSession {
         SP<Render::ITexture>     labelTexFocus;
         SP<Render::ITexture>     labelTexCurrent;
         SP<Render::ITexture>     selectionLabelTex;
+        // Same label drawn in red while the tile is being recaptured (dirty_debug aid).
+        SP<Render::ITexture>     labelTexLive;
+        Vector2D                 labelSizeLive = {0, 0};
         Vector2D                 labelSizeDefault = {0, 0};
         Vector2D                 labelSizeHover   = {0, 0};
         Vector2D                 labelSizeFocus   = {0, 0};
