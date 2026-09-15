@@ -119,6 +119,13 @@ class COverview final : public IOverviewSession {
     int        tileIndexAtPoint(const Vector2D& point, const Vector2D& totalSize, double gap, double outerInset = 0.0, bool centerPartialRows = true) const;
     Vector2D   tilePosForID(int id, const Vector2D& totalSize, double gap, double outerInset = 0.0, bool centerPartialRows = true) const;
     Vector2D   zoomSizeForCurrentGrid(const Vector2D& monitorSize) const;
+    // How far the overview currently is towards the zoomed-out grid: 0 = the focused
+    // workspace fills the screen, 1 = the full grid. Derived from the animated `size`
+    // itself rather than from `size->getPercent()`, because the latter is the *time*
+    // progress of the last animation: during a gesture drag the size is written with
+    // setValueAndWarp (no animation), so it stays pinned at 1 and the gaps/inset used to
+    // snap to their full value on the very first frame of the drag.
+    double     transitionPercent() const;
     void       updateHoveredFromMouse();
     void       ensureKbFocusInitialized();
     bool       isTileValid(int id) const;

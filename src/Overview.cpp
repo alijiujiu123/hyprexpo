@@ -1015,13 +1015,27 @@ Hyprexpo::SGridShape COverview::currentGridShape() const {
     return gridShape;
 }
 
+double COverview::transitionPercent() const {
+    const auto MON = pMonitor.lock();
+    if (!MON || !size)
+        return 1.0;
+
+    const auto ZOOMSIZE = zoomSizeForCurrentGrid(MON->m_size);
+    const auto SPAN     = ZOOMSIZE.x - MON->m_size.x;
+
+    if (std::abs(SPAN) <= 1e-6)
+        return 1.0;
+
+    return std::clamp((ZOOMSIZE.x - size->value().x) / SPAN, 0.0, 1.0);
+}
+
 double COverview::currentOuterInset() const {
     const auto MON = pMonitor.lock();
     if (!MON)
         return 0.0;
 
     static auto* const* PGAPSO = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:gaps_out")->getDataStaticPtr();
-    const double        percent = closing ? (1.0 - size->getPercent()) : size->getPercent();
+    const double        percent = transitionPercent();
     return std::max<Hyprlang::INT>(0, **PGAPSO) * percent;
 }
 

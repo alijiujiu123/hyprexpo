@@ -110,7 +110,7 @@ void COverview::onDamageReported() {
 
     Vector2D SIZE = size->value();
 
-    const auto GAPSIZE = (closing ? (1.0 - size->getPercent()) : size->getPercent()) * GAP_WIDTH;
+    const auto GAPSIZE = transitionPercent() * GAP_WIDTH;
     const auto OUTER = currentOuterInset();
     CBox texbox = tileBoxForIndex(openedID, SIZE, GAPSIZE, OUTER, true).translate(MON->m_position);
 
@@ -268,7 +268,7 @@ void COverview::fullRender() {
 
     Vector2D SIZE = size->value();
 
-    const auto GAPSIZE = (closing ? (1.0 - size->getPercent()) : size->getPercent()) * GAP_WIDTH;
+    const auto GAPSIZE = transitionPercent() * GAP_WIDTH;
     const auto OUTER   = currentOuterInset();
     const auto SHAPE   = currentGridShape();
 
