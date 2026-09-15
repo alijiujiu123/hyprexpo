@@ -58,6 +58,11 @@ class COverview final : public IOverviewSession {
     void onSwipeUpdate(double delta) override;
     void onSwipeEnd(bool switchToSelection, double projectedDelta = -1.0) override;
 
+    // Sandbox diagnostics (see hyprexpo:simswipe): one line with the geometry the renderer
+    // would use for the opened tile right now, in logical monitor pixels. Lets a synthetic
+    // drag be measured from the log instead of from screenshots.
+    std::string debugGeometry() const override;
+
     // close without a selection
     void          close(bool switchToSelection = true);
     bool          selectHoveredWorkspace();

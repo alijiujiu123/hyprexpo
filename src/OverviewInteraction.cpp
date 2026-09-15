@@ -16,8 +16,26 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <format>
 
 using namespace std::chrono_literals;
+
+std::string COverview::debugGeometry() const {
+    const auto MON = pMonitor.lock();
+    if (!MON || !size || !pos)
+        return "no-vars";
+
+    const auto PERCENT = transitionPercent();
+    const auto GAPSIZE = PERCENT * GAP_WIDTH;
+    const auto OUTER   = currentOuterInset();
+    const auto BOX     = tileBoxForIndex(openedID, size->value(), GAPSIZE, OUTER, true);
+    const auto POSV    = pos->value();
+    const auto SCALE   = MON->m_scale;
+
+    return std::format("canvas={:.1f}x{:.1f} pos=({:.1f},{:.1f}) closing={} pct={:.3f} anim={:.3f} gap={:.1f} outer={:.1f} tile=(x{:.1f} y{:.1f} w{:.1f} h{:.1f}) screen={:.0f}x{:.0f} scale={:.2f}",
+                       size->value().x, size->value().y, POSV.x, POSV.y, closing ? 1 : 0, PERCENT, size->getPercent(), GAPSIZE, OUTER, BOX.x + POSV.x / SCALE,
+                       BOX.y + POSV.y / SCALE, BOX.w, BOX.h, MON->m_size.x, MON->m_size.y, SCALE);
+}
 
 bool COverview::selectHoveredWorkspace() {
     if (closing)

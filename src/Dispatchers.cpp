@@ -28,6 +28,9 @@
 #include <algorithm>
 #include <charconv>
 #include <cctype>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <format>
 #include <sstream>
 #include <string>
@@ -755,6 +758,100 @@ bool isRenderingOverview() {
     return renderingOverview;
 }
 
+// ---- Sandbox gesture injection ---------------------------------------------------------
+// Drives the real trackpad-gesture path (CTrackpadGestures -> CExpoGesture) with synthetic
+// events so a drag can be stepped one libinput event at a time from a script. Sandbox /
+// diagnostic only: no Lua twin, because the nested sandbox uses the hyprlang parser.
+static std::vector<std::string> simTokens(const std::string& arg) {
+    std::vector<std::string> tokens;
+    std::string              current;
+
+    for (const auto c : arg) {
+        if (c == ' ' || c == '\t') {
+            if (!current.empty()) {
+                tokens.push_back(current);
+                current.clear();
+            }
+            continue;
+        }
+        current += c;
+    }
+
+    if (!current.empty())
+        tokens.push_back(current);
+
+    return tokens;
+}
+
+static bool simNumber(const std::string& token, double& out) {
+    const char* begin = token.data();
+    const char* end   = begin + token.size();
+    const auto  RES   = std::from_chars(begin, end, out);
+    return RES.ec == std::errc{} && RES.ptr == end;
+}
+
+static void simLogGeometry(const std::string& tag) {
+    auto* const OV = activeOverview();
+
+    // The plugin's own Log::logger instance does not share the compositor's output file, so
+    // append to a dedicated file instead (same trick edgebounce uses).
+    const char* const RT   = std::getenv("XDG_RUNTIME_DIR");
+    const std::string PATH = std::string{RT ? RT : "/tmp"} + "/hyprexpo-sim.log";
+    const std::string LINE = std::format("{:.3f} {} {}\n", std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(), tag,
+                                         OV ? OV->debugGeometry() : std::string("no-overview"));
+
+    if (auto* const F = fopen(PATH.c_str(), "a")) {
+        fwrite(LINE.data(), 1, LINE.size(), F);
+        fclose(F);
+    }
+}
+
+static SDispatchResult onSimSwipeDispatcher(std::string arg) {
+    if (g_unloading)
+        return {.success = false, .error = "plugin is unloading"};
+
+    const auto TOKENS = simTokens(arg);
+    if (TOKENS.empty())
+        return {.success = false, .error = "usage: hyprexpo:simswipe begin|update [dy] [count]|end"};
+
+    static uint32_t simTimeMs = 0;
+
+    if (TOKENS[0] == "begin") {
+        simTimeMs = 0;
+        const IPointer::SSwipeBeginEvent BEGIN{.timeMs = simTimeMs, .fingers = 3};
+        g_pTrackpadGestures->gestureBegin(BEGIN);
+        simLogGeometry("begin");
+        return {};
+    }
+
+    if (TOKENS[0] == "update") {
+        double DY    = -10.0; // negative = fingers move up, i.e. an expo swipe
+        double COUNT = 1.0;
+        if (TOKENS.size() > 1 && !simNumber(TOKENS[1], DY))
+            return {.success = false, .error = "invalid dy"};
+        if (TOKENS.size() > 2 && !simNumber(TOKENS[2], COUNT))
+            return {.success = false, .error = "invalid count"};
+
+        for (int i = 0; i < static_cast<int>(std::max(1.0, COUNT)); ++i) {
+            simTimeMs += 8;
+            const IPointer::SSwipeUpdateEvent UPDATE{.timeMs = simTimeMs, .fingers = 3, .delta = Vector2D{0.0, DY}};
+            g_pTrackpadGestures->gestureUpdate(UPDATE);
+            simLogGeometry(std::format("update dy={:.2f}", DY));
+        }
+        return {};
+    }
+
+    if (TOKENS[0] == "end") {
+        simTimeMs += 8;
+        const IPointer::SSwipeEndEvent END{.timeMs = simTimeMs, .cancelled = false};
+        g_pTrackpadGestures->gestureEnd(END);
+        simLogGeometry("end");
+        return {};
+    }
+
+    return {.success = false, .error = "unknown subcommand, expected begin|update|end"};
+}
+
 void registerHyprexpoDispatchers() {
     HyprlandAPI::addDispatcherV2(PHANDLE, "hyprexpo:expo", onExpoDispatcher);
     HyprlandAPI::addDispatcherV2(PHANDLE, "hyprexpo:kb_focus", onKbFocusDispatcher);
@@ -766,6 +863,7 @@ void registerHyprexpoDispatchers() {
     HyprlandAPI::addDispatcherV2(PHANDLE, "hyprexpo:scrolling_debug", onScrollingDebugDispatcher);
     HyprlandAPI::addDispatcherV2(PHANDLE, "hyprexpo:scrolling_input_test", onScrollingInputTestDispatcher);
     HyprlandAPI::addDispatcherV2(PHANDLE, "hyprexpo:scrolling_mutation_test", onScrollingMutationTestDispatcher);
+    HyprlandAPI::addDispatcherV2(PHANDLE, "hyprexpo:simswipe", onSimSwipeDispatcher);
 
     HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "expo", luaExpo);
     HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "kb_focus", luaKbFocus);

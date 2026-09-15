@@ -62,6 +62,12 @@ class IOverviewSession {
     virtual bool isSwiping() const = 0;
     virtual PHLMONITOR monitor() const = 0;
     virtual uint64_t sessionGeneration() const = 0;
+    // Sandbox diagnostics (hyprexpo:simswipe): one line with the geometry the renderer would
+    // use right now. Exposed here rather than through a downcast so that callers keep using
+    // the session interface.
+    virtual std::string debugGeometry() const {
+        return "unsupported-session";
+    }
 };
 
 // Registry ownership is removed before teardown callbacks can re-enter render/damage hooks.
