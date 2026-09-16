@@ -15,10 +15,18 @@ VERSION      := $(shell sh scripts/version.sh)
 VERSION_REGEX := ^v[0-9]+\.[0-9]+\.[0-9]+(\+[0-9]+)?$$
 VERSION_DEFINE := -DHYPREXPO_VERSION='"$(VERSION)"'
 
-CXXFLAGS = -shared -fPIC -g -std=c++2b -Wno-c++11-narrowing -Wno-narrowing
+# -Wl,-z,now: bind every symbol at load. Hyprland dlopens plugins with RTLD_LAZY, so a build with
+# an unresolved symbol loads happily and dies on the first call - inside the compositor, taking the
+# session with it. With immediate binding the load is refused instead, which is the difference
+# between "the plugin did not load" and "the desktop is gone".
+CXXFLAGS = -shared -fPIC -g -std=c++2b -Wno-c++11-narrowing -Wno-narrowing -Wl,-z,now
 LUA_PKG_CONFIG ?= $(shell if pkg-config --exists lua5.4; then printf 'lua5.4'; elif pkg-config --exists lua; then printf 'lua'; else printf 'lua5.4'; fi)
 PKG_CONFIG_DEPS = pixman-1 libdrm hyprland pangocairo libinput libudev wayland-server xkbcommon $(LUA_PKG_CONFIG)
-LINK_DEPS = pangocairo xkbcommon $(LUA_PKG_CONFIG)
+# Lua is deliberately not linked: the host owns the lua_State and exports the C API this plugin
+# calls (it includes lua.hpp, i.e. unmangled names). Linking pkg-config's Lua put a *second* Lua
+# runtime into the compositor process (5.4 next to the host's 5.5) - harmless only as long as the
+# host's symbols win the lookup.
+LINK_DEPS = pangocairo xkbcommon
 INCLUDES = $(shell pkg-config --cflags $(PKG_CONFIG_DEPS))
 LIBS = $(shell pkg-config --libs $(LINK_DEPS))
 
