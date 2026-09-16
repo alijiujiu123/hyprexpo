@@ -726,6 +726,11 @@ IOverviewSession* createOverview(const PHLMONITOR& monitor, bool swipe) {
     if (!session)
         return nullptr;
     g_overviews.push_back(std::move(session));
+
+    // The compositor's solitary fast path has to be re-evaluated now: with an overview up, this
+    // monitor must render through renderWorkspace (see hkRecheckSolitary in main.cpp).
+    monitor->recheckSolitary();
+
     return g_overviews.back().get();
 }
 
@@ -946,6 +951,10 @@ void destroyOverview(IOverviewSession* overview) {
 
     auto OWNER = std::move(*IT);
     g_overviews.erase(IT);
+
+    // Back to whatever the compositor would have decided without us.
+    if (MON)
+        MON->recheckSolitary();
     OWNER->prepareForTeardown();
     OWNER.reset();
 }

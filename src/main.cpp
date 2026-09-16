@@ -28,10 +28,12 @@ inline CFunctionHook* g_pRenderWorkspaceHook = nullptr;
 inline CFunctionHook* g_pAddDamageHookA      = nullptr;
 inline CFunctionHook* g_pAddDamageHookB      = nullptr;
 inline CFunctionHook* g_pCommitWindowHook    = nullptr;
+inline CFunctionHook* g_pSolitaryHook        = nullptr;
 typedef void (*origRenderWorkspace)(void*, PHLMONITOR, PHLWORKSPACE, const Time::steady_tp&, const CBox&);
 typedef void (*origAddDamageA)(void*, const CBox&);
 typedef void (*origAddDamageB)(void*, const pixman_region32_t*);
 typedef void (*origCommitWindow)(void*);
+typedef void (*origRecheckSolitary)(void*);
 
 // Hyprland only renders the visible workspace, so a client on a hidden one gets no frame
 // callbacks and commits only when it has something new to show. Its commits carry the
@@ -71,6 +73,26 @@ static void hkRenderWorkspace(void* thisptr, PHLMONITOR pMonitor, PHLWORKSPACE p
         ((origRenderWorkspace)(g_pRenderWorkspaceHook->m_original))(thisptr, pMonitor, pWorkspace, now, geometry);
     else
         OV->render();
+}
+
+// Hyprland's "solitary" fast path: `CMonitor::recheckSolitary()` picks the monitor's fullscreen
+// window, and `CRenderer::renderMonitor` then renders *only* that window
+// (`if (pMonitor->m_solitaryClient ...) renderWindow(...)`), skipping `renderWorkspace` entirely -
+// which is the function this plugin's whole overview rendering hangs off. The result is an overview
+// that is fully active (hover still selects workspaces, the gesture still runs) and never drawn, so
+// a three-finger swipe over a sole maximized/fullscreen client looks like nothing happened.
+//
+// While an overview is open the monitor has to stay off that path: the fast path is an
+// optimisation, and the full workspace render is exactly what the overview replaces anyway.
+static void hkRecheckSolitary(void* thisptr) {
+    auto* const MON = (Monitor::CMonitor*)thisptr;
+
+    if (MON && overviewForMonitor(MON->m_self.lock())) {
+        MON->m_solitaryClient.reset();
+        return;
+    }
+
+    ((origRecheckSolitary)g_pSolitaryHook->m_original)(thisptr);
 }
 
 static void hkAddDamageA(void* thisptr, const CBox& box) {
@@ -164,6 +186,17 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     else {
         g_pCommitWindowHook = HyprlandAPI::createFunctionHook(PHANDLE, FNS[0].address, (void*)hkCommitWindow);
         success             = success && g_pCommitWindowHook->hook();
+    }
+
+    // Same reasoning as the commit hook: a patched or older compositor without this symbol keeps
+    // the previous behaviour (an invisible overview over a sole fullscreen window) instead of
+    // refusing to load.
+    FNS = HyprlandAPI::findFunctionsByName(PHANDLE, "_ZN7Monitor8CMonitor15recheckSolitaryEv");
+    if (FNS.empty())
+        Log::logger->log(Log::ERR, "[hyprexpo] no fn for hook CMonitor::recheckSolitary, the overview stays invisible over a sole fullscreen window");
+    else {
+        g_pSolitaryHook = HyprlandAPI::createFunctionHook(PHANDLE, FNS[0].address, (void*)hkRecheckSolitary);
+        success         = success && g_pSolitaryHook->hook();
     }
 
     if (!success) {
