@@ -13,6 +13,12 @@ These rules apply to maintainers, contributors, and coding agents.
 
 - Test PR builds with `make dev-reload` or `./scripts/run-nested.sh`. Keep the
   checkout and built artifact available for the test session.
+- Behaviour that only exists while the overview is open and a card is under the
+  pointer cannot be checked by looking at a screenshot: run
+  `./scripts/validate-gesture-actions.sh` (it drives the synthetic swipe
+  dispatcher in a nested sandbox and asserts what each gesture action does). The
+  hover cases need `vptr` for real pointer motion; without it they are skipped
+  and the run fails unless `--allow-skips` is passed.
 - Do not write a PR commit or temporary branch into the desktop's hyprpm
   `repository.rev`, or set that override to keep a test build installed. A
   squash merge and branch deletion can make the original commit unavailable
