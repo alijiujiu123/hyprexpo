@@ -56,6 +56,11 @@ void CExpoGesture::begin(const ITrackpadGesture::STrackpadGestureBegin& e) {
     }
 
     if (!OV) {
+        // `commit` is a decision about an overview that is already open: with none the swipe
+        // is inert, so the direction that closes cannot summon one the way `expo` does.
+        if (m_action == EExpoGestureAction::Commit)
+            return;
+
         if (auto* const CREATED = createOverview(monitor, true))
             m_sessionGeneration = CREATED->sessionGeneration();
     }
@@ -135,7 +140,7 @@ void CExpoGesture::end(const ITrackpadGesture::STrackpadGestureEnd& e) {
     }
 
     OV->setClosing(false);
-    OV->onSwipeEnd(m_action == EExpoGestureAction::Expo, PROJECTED);
+    OV->onSwipeEnd(m_action != EExpoGestureAction::Cancel, PROJECTED);
     // onSwipeEnd can tear the overview down, so re-resolve before touching it.
     if (auto* const STILL_ALIVE = overview())
         STILL_ALIVE->resetSwipe();

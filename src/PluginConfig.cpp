@@ -5,6 +5,7 @@
 #include "Dispatchers.hpp"
 #include "globals.hpp"
 #include "HyprexpoConfig.hpp"
+#include "HyprexpoLogic.hpp"
 #include <hyprland/src/config/values/types/ColorValue.hpp>
 #include <hyprland/src/config/values/types/FloatValue.hpp>
 #include <hyprland/src/config/values/types/IntValue.hpp>
@@ -24,6 +25,13 @@ static std::expected<void, std::string> validateGestureDirection(const Config::S
         return {};
 
     return std::unexpected("invalid direction '" + value + "'");
+}
+
+static std::expected<void, std::string> validateGestureAction(const Config::STRING& value) {
+    if (Hyprexpo::parseGestureAction(value))
+        return {};
+
+    return std::unexpected("invalid action '" + value + "', expected expo|cancel|commit");
 }
 
 void registerHyprexpoConfigValues() {
@@ -81,6 +89,8 @@ void registerHyprexpoConfigValues() {
                                                          Config::Values::SIntValueOptions{.min = 0, .max = 9}));
     addConfigValue(makeShared<Config::Values::CStringValue>("plugin:hyprexpo:gesture_direction", "swipe direction for the gesture", HyprexpoConfig::GESTURE_DIRECTION_DEFAULT,
                                                             Config::Values::SStringValueOptions{.validator = validateGestureDirection}));
+    addConfigValue(makeShared<Config::Values::CStringValue>("plugin:hyprexpo:gesture_action", "what the gesture does: expo, cancel, or commit", HyprexpoConfig::GESTURE_ACTION_DEFAULT,
+                                                            Config::Values::SStringValueOptions{.validator = validateGestureAction}));
     addConfigValue(createCancelKeyConfig());
     addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:show_cursor", "show cursor during overview", HyprexpoConfig::SHOW_CURSOR_DEFAULT));
     addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:show_pinned_windows", "show pinned windows in previews", HyprexpoConfig::SHOW_PINNED_WINDOWS_DEFAULT));

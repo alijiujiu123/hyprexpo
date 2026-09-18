@@ -455,7 +455,21 @@ SGestureSyncDecision evaluateGestureSync(const SGestureConfig& config) {
     if (!config.directionValid)
         return {.error = "gesture_direction '" + config.direction + "' is not a valid trackpad direction"};
 
+    if (!config.action)
+        return {.error = "gesture_action '" + config.actionRaw + "' is not one of expo|cancel|commit"};
+
     return {.registerGesture = true, .error = ""};
+}
+
+std::optional<EGestureAction> parseGestureAction(std::string_view action) {
+    if (action == "expo")
+        return EGestureAction::Expo;
+    if (action == "cancel")
+        return EGestureAction::Cancel;
+    if (action == "commit")
+        return EGestureAction::Commit;
+
+    return std::nullopt;
 }
 
 // Hyprland 0.56 exposes plugin strings as const char*.

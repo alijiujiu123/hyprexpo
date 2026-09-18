@@ -501,21 +501,27 @@ int main() {
     const auto gestureSync = extractFunction(dispatchersSource, "void syncExpoGestureFromConfig(");
     expect(!gestureSync.empty(), "syncExpoGestureFromConfig exists");
     expect(gestureSync.find("g_unloading || g_gestureRegistrationDisabled") != std::string::npos, "gesture sync bails out while the plugin is unloading");
-    expect(gestureSync.find("registerExpoGesture(FINGERS, DIR, \"expo\"") != std::string::npos,
-           "plain config synchronization remains expo-only");
+    expect(gestureSync.find("CompatHyprlandAPI::stringValue(\"plugin:hyprexpo:gesture_action\")") != std::string::npos &&
+               gestureSync.find("registerExpoGesture(FINGERS, DIR, ACTION") != std::string::npos,
+           "plain config synchronization forwards the configured action instead of hardcoding expo");
+    expect(gestureSync.find(".action         = Hyprexpo::parseGestureAction(ACTION)") != std::string::npos &&
+               gestureSync.find(".actionRaw      = ACTION") != std::string::npos,
+           "plain config synchronization validates the action through the shared parser");
 
     const auto gestureRegister = extractFunction(dispatchersSource, "static SDispatchResult registerExpoGesture(");
     expect(!gestureRegister.empty(), "registerExpoGesture definition exists");
     expect(gestureRegister.find("g_unloading || g_gestureRegistrationDisabled") != std::string::npos,
            "every gesture registration path, including the Lua helper, is fenced during unload");
-    expect(gestureRegister.find("action == \"expo\"") != std::string::npos &&
-               gestureRegister.find("makeUnique<CExpoGesture>(EExpoGestureAction::Expo)") != std::string::npos,
-           "Lua expo registration constructs an explicit expo gesture");
-    expect(gestureRegister.find("action == \"cancel\"") != std::string::npos &&
-               gestureRegister.find("makeUnique<CExpoGesture>(EExpoGestureAction::Cancel)") != std::string::npos,
-           "Lua cancel registration constructs an explicit cancel gesture");
-    expect(gestureRegister.find("expected expo|cancel|unset") != std::string::npos,
+    expect(gestureRegister.find("else if (const auto PARSED = Hyprexpo::parseGestureAction(action); !PARSED)") != std::string::npos &&
+               gestureRegister.find("Hyprexpo::parseGestureAction") != std::string::npos,
+           "Lua gesture actions are validated through the same parser the config key uses");
+    expect(gestureRegister.find("makeUnique<CExpoGesture>(expoGestureActionFor(*PARSED))") != std::string::npos &&
+               gestureRegister.find("action == \"unset\"") != std::string::npos,
+           "Lua registration constructs the parsed action and keeps unset as a removal");
+    expect(gestureRegister.find("expected expo|cancel|commit|unset") != std::string::npos,
            "invalid Lua gesture actions report the complete accepted set");
+    expect(dispatchersSource.find("case Hyprexpo::EGestureAction::Commit: return EExpoGestureAction::Commit;") != std::string::npos,
+           "the commit action maps onto the gesture's own commit mode");
 
     expect(gestureHeader.find("enum class EExpoGestureAction") != std::string::npos,
            "gesture action modes use an explicit enum");
@@ -561,6 +567,10 @@ int main() {
                expoBeginBlock.find("OV->selectHoveredWorkspace()") != std::string::npos &&
                expoBeginBlock.find("OV->setClosing(true)") != std::string::npos,
            "expo begin retains open and hovered-selection close behavior");
+    const auto commitBeginGuard = expoBeginBlock.find("if (m_action == EExpoGestureAction::Commit)");
+    const auto createOverviewCall = expoBeginBlock.find("createOverview(monitor, true)");
+    expect(commitBeginGuard != std::string::npos && createOverviewCall != std::string::npos && commitBeginGuard < createOverviewCall,
+           "commit begin returns before creating an overview, so the closing direction cannot summon one");
 
     const auto gestureOverview = extractFunction(gestureSource, "IOverviewSession* CExpoGesture::overview() const {");
     expect(gestureOverview.find("overviewForSession(overviewMonitorKey(m_monitor.lock()), m_sessionGeneration)") != std::string::npos,
@@ -590,8 +600,8 @@ int main() {
            "gesture end re-resolves the origin overview and ignores committed closes");
     expect(gestureEnd.find("OV->setClosing(false)") != std::string::npos,
            "gesture end clears transient closing before threshold evaluation");
-    expect(gestureEnd.find("OV->onSwipeEnd(m_action == EExpoGestureAction::Expo, PROJECTED)") != std::string::npos,
-           "gesture completion selects only for the expo action and forwards the release projection");
+    expect(gestureEnd.find("OV->onSwipeEnd(m_action != EExpoGestureAction::Cancel, PROJECTED)") != std::string::npos,
+           "gesture completion forwards the release projection and selects for every action except cancel");
     expect(gestureEnd.find("e.swipe ? releaseProjectedDelta(e.swipe->timeMs) : -1.0") != std::string::npos,
            "gesture completion derives the projection from the release timestamp");
     expect(gestureEnd.find("if (auto* const STILL_ALIVE = overview())") != std::string::npos &&

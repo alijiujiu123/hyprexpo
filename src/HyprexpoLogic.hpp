@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Hyprexpo {
@@ -31,6 +32,20 @@ enum class ENumberKeyMode {
     Workspace,
     Index,
     Passthrough,
+};
+
+// Semantics one registered swipe can carry. Accepted by the Lua `gesture` helper as `action`
+// and by the `gesture_action` config key, both parsed through parseGestureAction().
+enum class EGestureAction {
+    // Opens the overview; with one already open it selects the hovered workspace and
+    // switches to it.
+    Expo,
+    // Closes interactively without selecting anything.
+    Cancel,
+    // Never opens an overview: with one open it selects the hovered workspace and switches
+    // to it, and with none it is inert. This is what a swipe in the closing direction wants
+    // -- `expo` there would summon an overview the user was swiping to dismiss.
+    Commit,
 };
 
 struct SWorkspaceMethodSpec {
@@ -168,6 +183,10 @@ struct SGestureConfig {
     int         fingers = 0;
     std::string direction;
     bool        directionValid = false;
+    // Already parsed by the caller so the error can name the string that failed; the default
+    // matches the `gesture_action` default, which is what an unset config produces.
+    std::optional<EGestureAction> action = EGestureAction::Expo;
+    std::string                   actionRaw = "expo";
 };
 
 struct SGestureSyncDecision {
@@ -200,6 +219,9 @@ bool                     shouldAbortOverviewCloseForWorkspaceMove(bool windowPin
 SDropIntentGeometry      computeDropIntentGeometry(const SDropIntentInput& input);
 
 SGestureSyncDecision     evaluateGestureSync(const SGestureConfig& config);
+// Action names are compared exactly, never normalized: the config value and the Lua argument
+// both surface verbatim in the error, so a typo cannot silently pick a different semantic.
+std::optional<EGestureAction> parseGestureAction(std::string_view action);
 
 std::string              decodeConfigString(const void* dataptr, bool underlyingIsStdString, const std::string& fallback);
 

@@ -107,7 +107,7 @@ hl.plugin.hyprexpo.gesture({
 hl.plugin.hyprexpo.gesture({
     fingers = 4,
     direction = "down",
-    action = "cancel",
+    action = "commit",
 })
 ```
 
@@ -122,6 +122,13 @@ completed cancel swipe returns to the workspace where the overview opened; an
 incomplete swipe restores the still-open overview. Each cancel swipe targets
 the opening workspace again, including after an incomplete expo close was
 previously aimed at another tile.
+The `commit` action is the mirror image: it never opens an overview, and while
+one is open it selects the hovered tile and switches to it, so the drag zooms
+the workspace under the pointer into place. Register it for the direction that
+closes rather than `expo` there — an `expo` gesture in the closing direction
+opens an overview that follows the finger, which reads as the summon failing
+(a short swipe) or the screen jumping (a long one). Like `expo`, an incomplete
+commit swipe below the halfway threshold restores the still-open overview.
 
 `gesture` accepts this table shape:
 
@@ -129,7 +136,7 @@ previously aimed at another tile.
 | --- | --- | --- | --- |
 | `fingers` | integer | yes | number of fingers |
 | `direction` | string | yes | swipe direction |
-| `action` | string | no | `expo`, `cancel`, or `unset`; defaults to `expo` |
+| `action` | string | no | `expo`, `cancel`, `commit`, or `unset`; defaults to `expo` |
 | `mods` | string | no | modifier expression passed to Hyprland |
 | `scale` | number | no | gesture scale; defaults to `1.0` |
 | `disable_inhibit` | boolean | no | whether to bypass inhibit handling |

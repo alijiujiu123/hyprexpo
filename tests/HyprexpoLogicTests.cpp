@@ -972,6 +972,21 @@ int main() {
     expect(!badDirection.registerGesture, "an unknown gesture_direction registers nothing");
     expect(badDirection.error.find("sideways") != std::string::npos, "an unknown gesture_direction is reported with the offending value");
 
+    const auto commitAction = evaluateGestureSync({.fingers = 3, .direction = "down", .directionValid = true, .action = parseGestureAction("commit"), .actionRaw = "commit"});
+    expect(commitAction.registerGesture && commitAction.error.empty(), "the commit action validates for a config-registered gesture");
+    const auto cancelAction = evaluateGestureSync({.fingers = 3, .direction = "down", .directionValid = true, .action = parseGestureAction("cancel"), .actionRaw = "cancel"});
+    expect(cancelAction.registerGesture && cancelAction.error.empty(), "the cancel action validates for a config-registered gesture");
+    const auto badAction = evaluateGestureSync({.fingers = 3, .direction = "down", .directionValid = true, .action = parseGestureAction("cancle"), .actionRaw = "cancle"});
+    expect(!badAction.registerGesture, "an unknown gesture_action registers nothing");
+    expect(badAction.error.find("cancle") != std::string::npos, "an unknown gesture_action is reported with the offending value");
+
+    expect(parseGestureAction("expo") == EGestureAction::Expo, "the expo action parses");
+    expect(parseGestureAction("cancel") == EGestureAction::Cancel, "the cancel action parses");
+    expect(parseGestureAction("commit") == EGestureAction::Commit, "the commit action parses");
+    expect(!parseGestureAction("Commit").has_value(), "action names are case-sensitive");
+    expect(!parseGestureAction("exp").has_value(), "partial action names are rejected");
+    expect(!parseGestureAction("").has_value(), "an empty action name is rejected");
+
     expect(fallbackTokenForVisibleIndex(0) == "1", "fallback token first workspace");
     expect(fallbackTokenForVisibleIndex(9) == "0", "fallback token tenth workspace");
     expect(fallbackTokenForVisibleIndex(10) == "a", "fallback token alpha start");

@@ -54,6 +54,18 @@ static SDispatchResult onScrollingInputTestDispatcher(std::string arg);
 static SDispatchResult onScrollingMutationTestDispatcher(std::string arg);
 static SDispatchResult registerExpoGesture(int fingerCount, const std::string& directionName, const std::string& action, const std::string& mods, float deltaScale, bool disableInhibit);
 
+// The Lua helper and the config key share one parser for the accepted names, so the mapping
+// onto the gesture's own enum is the only place that enumerates them again.
+static EExpoGestureAction expoGestureActionFor(Hyprexpo::EGestureAction action) {
+    switch (action) {
+        case Hyprexpo::EGestureAction::Cancel: return EExpoGestureAction::Cancel;
+        case Hyprexpo::EGestureAction::Commit: return EExpoGestureAction::Commit;
+        case Hyprexpo::EGestureAction::Expo: break;
+    }
+
+    return EExpoGestureAction::Expo;
+}
+
 static std::string trimString(std::string value) {
     while (!value.empty() && std::isspace((unsigned char)value.front()))
         value.erase(value.begin());
@@ -539,14 +551,12 @@ static SDispatchResult registerExpoGesture(int fingerCount, const std::string& d
     deltaScale = std::clamp(deltaScale, 0.1F, 10.F);
 
     std::expected<void, std::string> result;
-    if (action == "expo")
-        result = g_pTrackpadGestures->addGesture(makeUnique<CExpoGesture>(EExpoGestureAction::Expo), fingerCount, direction, modMask, deltaScale, disableInhibit);
-    else if (action == "cancel")
-        result = g_pTrackpadGestures->addGesture(makeUnique<CExpoGesture>(EExpoGestureAction::Cancel), fingerCount, direction, modMask, deltaScale, disableInhibit);
-    else if (action == "unset")
+    if (action == "unset")
         result = g_pTrackpadGestures->removeGesture(fingerCount, direction, modMask, deltaScale, disableInhibit);
+    else if (const auto PARSED = Hyprexpo::parseGestureAction(action); !PARSED)
+        return {.success = false, .error = std::format("invalid action '{}', expected expo|cancel|commit|unset", action)};
     else
-        return {.success = false, .error = std::format("invalid action '{}', expected expo|cancel|unset", action)};
+        result = g_pTrackpadGestures->addGesture(makeUnique<CExpoGesture>(expoGestureActionFor(*PARSED)), fingerCount, direction, modMask, deltaScale, disableInhibit);
 
     if (!result)
         return {.success = false, .error = result.error()};
@@ -569,11 +579,14 @@ void syncExpoGestureFromConfig() {
 
     const int         FINGERS = (int)CompatHyprlandAPI::intValue("plugin:hyprexpo:gesture_fingers");
     const std::string DIR     = CompatHyprlandAPI::stringValue("plugin:hyprexpo:gesture_direction");
+    const std::string ACTION  = CompatHyprlandAPI::stringValue("plugin:hyprexpo:gesture_action");
 
     const auto DECISION = Hyprexpo::evaluateGestureSync({
         .fingers        = FINGERS,
         .direction      = DIR,
         .directionValid = g_pTrackpadGestures && g_pTrackpadGestures->dirForString(DIR) != TRACKPAD_GESTURE_DIR_NONE,
+        .action         = Hyprexpo::parseGestureAction(ACTION),
+        .actionRaw      = ACTION,
     });
 
     if (!DECISION.error.empty()) {
@@ -584,7 +597,7 @@ void syncExpoGestureFromConfig() {
     if (!DECISION.registerGesture)
         return;
 
-    if (const auto RESULT = registerExpoGesture(FINGERS, DIR, "expo", "", 1.F, false); !RESULT.success)
+    if (const auto RESULT = registerExpoGesture(FINGERS, DIR, ACTION, "", 1.F, false); !RESULT.success)
         reportGestureConfigError(RESULT.error);
 }
 

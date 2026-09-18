@@ -8,8 +8,15 @@
 class IOverviewSession;
 
 enum class EExpoGestureAction {
+    // Opens the overview; with one already open it selects the hovered workspace and switches
+    // to it.
     Expo,
+    // Closes interactively without selecting anything.
     Cancel,
+    // Switches to the hovered workspace on an overview that is already open, and does nothing
+    // at all without one -- the closing-direction swipe, which must not summon an overview it
+    // is asking to dismiss.
+    Commit,
 };
 
 class CExpoGesture : public ITrackpadGesture {

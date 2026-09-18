@@ -104,6 +104,7 @@ plugin {
 | `plugin:hyprexpo:gesture_distance` | int | swipe distance considered complete | `200` |
 | `plugin:hyprexpo:gesture_fingers` | int | fingers for the interactive swipe gesture; `0` disables, otherwise `2`-`9` | `0` |
 | `plugin:hyprexpo:gesture_direction` | string | swipe direction: `up`, `down`, `left`, `right`, `vertical`, `horizontal`, `pinch` | `up` |
+| `plugin:hyprexpo:gesture_action` | string | what the config-registered swipe does: `expo`, `cancel`, or `commit` | `expo` |
 | `plugin:hyprexpo:cancel_key` | string | comma-separated key names that close overview without selecting; `none` or `off` disables | `escape` |
 | `plugin:hyprexpo:show_cursor` | bool int | keep the cursor visible while overview is open; set `0` for old hidden-cursor behavior | `1` |
 | `plugin:hyprexpo:show_pinned_windows` | bool int | render pinned/PiP windows in workspace preview thumbnails; default `0` hides them from previews only | `0` |
@@ -198,20 +199,35 @@ columns from the overview. See [Scrolling Overview](../guides/scrolling-overview
 
 ### Trackpad gesture
 
-`gesture_fingers` and `gesture_direction` register the interactive, follow-your-finger `expo` gesture from plain config. They remain expo-only; registering the `cancel` action requires [`hl.plugin.hyprexpo.gesture{}`](../guides/lua-gestures.md) in a Lua config. Hyprland selects either hyprlang or Lua for the whole config and a `.lua` cannot be sourced from a `.conf`, so hyprlang users need these keys to reach the expo gesture at all.
+`gesture_fingers` and `gesture_direction` register the interactive, follow-your-finger swipe from plain config, and `gesture_action` picks what it does. `expo` opens the overview and, with one already open, switches to the hovered workspace; `cancel` closes without selecting anything; `commit` never opens an overview and only ever switches to the hovered workspace, so it is inert while the overview is closed. A swipe in the closing direction wants `commit`: with `expo` it summons the overview the user was swiping to dismiss, which reads as the summon failing or the screen jumping.
+
+Registering more than one direction, or giving different directions different actions, needs [`hl.plugin.hyprexpo.gesture{}`](../guides/lua-gestures.md) in a Lua config. Hyprland selects either hyprlang or Lua for the whole config and a `.lua` cannot be sourced from a `.conf`, so hyprlang users need these keys to reach the gesture at all.
 
 ```ini
 plugin {
     hyprexpo {
         gesture_fingers = 3
-        gesture_direction = vertical
+        gesture_direction = up
+        gesture_action = expo
+    }
+}
+```
+
+A single swipe in the closing direction — three fingers down switching to whatever the pointer hovers, and doing nothing while the overview is closed:
+
+```ini
+plugin {
+    hyprexpo {
+        gesture_fingers = 3
+        gesture_direction = down
+        gesture_action = commit
     }
 }
 ```
 
 `gesture_fingers = 0` (the default) registers nothing, leaving trackpad handling entirely to Hyprland and Lua. Use a `gesture_direction` that does not collide with an existing Hyprland `gesture =` binding for the same finger count.
 
-Bad values are rejected when the gesture is registered, not while the config is parsed. An unknown `gesture_direction`, or a `gesture_fingers` value that is neither `0` nor in `2`-`9`, raises a notification and leaves the gesture unregistered rather than failing silently. Under the hyprlang backend these do not reach `hyprctl configerrors`: plugins have no API for adding entries there, and hyprlang does not run the validators attached to plugin config values.
+Bad values are rejected when the gesture is registered, not while the config is parsed. An unknown `gesture_direction`, a `gesture_action` that is not one of `expo`, `cancel`, `commit`, or a `gesture_fingers` value that is neither `0` nor in `2`-`9`, raises a notification and leaves the gesture unregistered rather than failing silently. Under the hyprlang backend these do not reach `hyprctl configerrors`: plugins have no API for adding entries there, and hyprlang does not run the validators attached to plugin config values.
 
 ## Tile Appearance
 

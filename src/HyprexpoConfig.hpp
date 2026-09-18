@@ -85,6 +85,11 @@ inline constexpr int         DIRTY_DRIVE_DEFAULT          = 1;
 inline constexpr int         DIRTY_DEBUG_DEFAULT          = 1;
 inline constexpr int         GESTURE_FINGERS_DEFAULT         = 0;
 inline constexpr const char* GESTURE_DIRECTION_DEFAULT       = "up";
+// What the config-registered swipe *does*: `expo` opens the overview (and, when one is open,
+// switches to the hovered workspace), `cancel` closes it without selecting, `commit` only ever
+// acts on an open overview and switches to the hovered workspace — the semantics a swipe in the
+// closing direction wants, since it must not summon an overview it is asking to dismiss.
+inline constexpr const char* GESTURE_ACTION_DEFAULT          = "expo";
 inline constexpr const char* CANCEL_KEY_DEFAULT              = "escape";
 inline constexpr int         SHOW_CURSOR_DEFAULT             = 1;
 inline constexpr int         SHOW_PINNED_WINDOWS_DEFAULT     = 0;
