@@ -144,6 +144,10 @@ What this does and does not do:
   independently of how many tiles are dirty.
 - The client's own commit rate is the ceiling: a tile cannot show more new frames than the
   window in it produces, so raising the rate past that only recaptures identical content.
+- The refresh does not stop while the overview closes. The grid is still on screen while it
+  zooms onto the selected tile and the workspace switch runs behind it, so tiles keep being
+  recaptured until the overview is destroyed — `close()` and the gesture's closing drag are
+  not a reason to freeze them. Only the rate limits above apply.
 - `dirty_debug = 1` writes `commits=N recaptures=N pending=N tiles=N per_ws=<id>:<count>`
   into `$XDG_RUNTIME_DIR/hyprexpo-dirty.log` once per second, which is how the knobs are
   calibrated and how you can see which workspaces are actually producing content while

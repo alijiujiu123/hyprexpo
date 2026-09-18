@@ -304,7 +304,11 @@ void COverview::refreshDirtyTiles() {
         dirtyLogTime = NOW;
     }
 
-    if (!**PENABLED || closing || contentDirtyWorkspaces.empty())
+    // See markWorkspaceContentDirty(): `closing` must not stop the refresh. The close is the
+    // last stretch in which the grid is visible (it shrinks onto the selected tile while the
+    // workspace switch runs behind it), so the tiles have to stay live until the overview is
+    // destroyed. The rate limits below are the brake that applies, not the closing flag.
+    if (!**PENABLED || contentDirtyWorkspaces.empty())
         return;
 
     const auto COOLDOWN = std::chrono::milliseconds(std::max<Hyprlang::INT>(0, **PCOOLDOWN));
@@ -328,7 +332,7 @@ void COverview::refreshDirtyTiles() {
         if (TILE < 0 || TILE >= (int)lastTileCapture.size())
             continue;
 
-        if (closing || budget <= 0 || (MAXPS > 0 && dirtyWindowCount >= (uint64_t)MAXPS) || NOW - lastTileCapture[TILE] < COOLDOWN) {
+        if (budget <= 0 || (MAXPS > 0 && dirtyWindowCount >= (uint64_t)MAXPS) || NOW - lastTileCapture[TILE] < COOLDOWN) {
             remaining.insert(remaining.end(), contentDirtyWorkspaces.begin() + i, contentDirtyWorkspaces.end());
             break;
         }

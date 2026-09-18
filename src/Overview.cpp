@@ -854,7 +854,11 @@ void markWorkspaceContentDirty(const PHLWORKSPACE& workspace) {
 }
 
 bool COverview::markWorkspaceContentDirty(int64_t workspaceID) {
-    if (closing || workspaceID == WORKSPACE_INVALID)
+    // Deliberately not gated on `closing`: the grid is still on screen while it closes onto
+    // the selected tile and the workspace behind it changes, and that stretch is exactly
+    // where a tile that stops moving is most obvious. The overview's own destruction is the
+    // boundary, not the commit of its close animation.
+    if (workspaceID == WORKSPACE_INVALID)
         return false;
 
     if (tileForWorkspaceID(workspaceID) < 0)
