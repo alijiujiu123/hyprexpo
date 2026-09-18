@@ -91,6 +91,8 @@ void registerHyprexpoConfigValues() {
                                                             Config::Values::SStringValueOptions{.validator = validateGestureDirection}));
     addConfigValue(makeShared<Config::Values::CStringValue>("plugin:hyprexpo:gesture_action", "what the gesture does: expo, cancel, or commit", HyprexpoConfig::GESTURE_ACTION_DEFAULT,
                                                             Config::Values::SStringValueOptions{.validator = validateGestureAction}));
+    addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:commit_min_travel", "travel a commit swipe needs before it may switch (0 = release momentum may decide alone)",
+                                                         HyprexpoConfig::COMMIT_MIN_TRAVEL_DEFAULT, Config::Values::SIntValueOptions{.min = 0, .max = 100000}));
     addConfigValue(createCancelKeyConfig());
     addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:show_cursor", "show cursor during overview", HyprexpoConfig::SHOW_CURSOR_DEFAULT));
     addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:show_pinned_windows", "show pinned windows in previews", HyprexpoConfig::SHOW_PINNED_WINDOWS_DEFAULT));

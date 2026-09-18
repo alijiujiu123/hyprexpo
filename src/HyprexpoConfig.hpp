@@ -90,6 +90,11 @@ inline constexpr const char* GESTURE_DIRECTION_DEFAULT       = "up";
 // acts on an open overview and switches to the hovered workspace — the semantics a swipe in the
 // closing direction wants, since it must not summon an overview it is asking to dismiss.
 inline constexpr const char* GESTURE_ACTION_DEFAULT          = "expo";
+// Minimum accumulated finger travel (gesture delta, i.e. raw delta x scale) before a `commit`
+// swipe is allowed to switch at all. 0 keeps the historical behavior, where the release
+// momentum alone can commit a flick that never travelled: with momentum_decel > 0 a brisk
+// three-finger brush in the closing direction switches workspaces without the user dragging.
+inline constexpr int         COMMIT_MIN_TRAVEL_DEFAULT       = 0;
 inline constexpr const char* CANCEL_KEY_DEFAULT              = "escape";
 inline constexpr int         SHOW_CURSOR_DEFAULT             = 1;
 inline constexpr int         SHOW_PINNED_WINDOWS_DEFAULT     = 0;

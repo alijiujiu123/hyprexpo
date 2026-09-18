@@ -105,6 +105,7 @@ plugin {
 | `plugin:hyprexpo:gesture_fingers` | int | fingers for the interactive swipe gesture; `0` disables, otherwise `2`-`9` | `0` |
 | `plugin:hyprexpo:gesture_direction` | string | swipe direction: `up`, `down`, `left`, `right`, `vertical`, `horizontal`, `pinch` | `up` |
 | `plugin:hyprexpo:gesture_action` | string | what the config-registered swipe does: `expo`, `cancel`, or `commit` | `expo` |
+| `plugin:hyprexpo:commit_min_travel` | int | finger travel a `commit` swipe needs before it may switch at all; `0` lets the release momentum decide alone | `0` |
 | `plugin:hyprexpo:cancel_key` | string | comma-separated key names that close overview without selecting; `none` or `off` disables | `escape` |
 | `plugin:hyprexpo:show_cursor` | bool int | keep the cursor visible while overview is open; set `0` for old hidden-cursor behavior | `1` |
 | `plugin:hyprexpo:show_pinned_windows` | bool int | render pinned/PiP windows in workspace preview thumbnails; default `0` hides them from previews only | `0` |
@@ -212,6 +213,8 @@ plugin {
     }
 }
 ```
+
+A `commit` swipe also has to travel. With `momentum_decel > 0` the projected landing of a short brisk brush is already past the halfway threshold, so a three-finger push in the closing direction lands on another workspace without the user having dragged anywhere — that is the "it switches on its own" report. `commit_min_travel` is the floor that stops it: below it the swipe re-targets the workspace the overview opened on and closes without switching (what `cancel` does), above it the usual landing decision runs unchanged, momentum included. Like `gesture_distance` the value is in gesture delta, so the finger travel it takes is `commit_min_travel / scale` (`scale = 0.4` → `60` is 150 units).
 
 Nothing is hovered, and nothing holds keyboard focus, until the user acts: opening the overview marks no card, moving the pointer marks the one under it, and the first arrow key (or confirmation) starts the focus ring from the workspace the overview opened on. A commit therefore pulls out the card the pointer has actually picked — with the pointer still where it was when the overview opened, there is nothing to pull out and the overview just closes.
 

@@ -24,6 +24,11 @@
 #      with the pointer untouched             diagnostic line must report hovered=-1 and
 #                                             focus=-1, `expo select` must not switch, and a
 #                                             commit swipe must not switch either
+#   G  release momentum alone                 with momentum_decel > 0 a tiny brisk swipe in the
+#                                             closing direction used to switch workspaces
+#                                             without travelling: with commit_min_travel set it
+#                                             closes without switching, while a deliberate drag
+#                                             still commits
 #   F2 the same on the swipe path             a gesture-opened overview starts from the zoomed
 #                                             layout, so the pre-fix construction-time hit test
 #                                             mapped any pointer position to tile 0: every
@@ -144,6 +149,7 @@ plugin {
     gesture_fingers = 3
     gesture_direction = down
     gesture_action = commit
+    commit_min_travel = 0
     momentum_decel = 0
     dirty_debug = 0
     overview_anim_speed = 8
@@ -297,11 +303,78 @@ else
 fi
 hc dispatch hyprexpo:expo off >/dev/null; sleep 0.5
 
+# ---- G: release momentum alone must not commit a swipe that never travelled ----------------
+# The report: "three fingers down usually switches workspaces" -- with momentum_decel > 0 and
+# no floor, the projected landing of a short fast brush (20 units of travel) is already far past
+# the halfway threshold, so the swipe commits without the user dragging anywhere.
+hc dispatch hyprexpo:expo off >/dev/null; sleep 0.5
+sed -i 's/momentum_decel = 0/momentum_decel = 25/' "$CONF"
+hc reload >/dev/null; sleep 0.9
+check_eq "G: momentum is enabled for this case" "25" "$(option momentum_decel)"
+check_eq "G: the travel floor starts disabled" "0" "$(option commit_min_travel)"
+
+open_overview
+if hover_card; then
+    before="$(active_ws)"
+    hc dispatch hyprexpo:simswipe begin >/dev/null
+    hc dispatch hyprexpo:simswipe update 20 2 >/dev/null      # 20 units: a brush, not a drag
+    sleep 0.3
+    hc dispatch hyprexpo:simswipe end >/dev/null
+    sleep 1.2
+    after="$(active_ws)"
+    if [[ $after != "$before" ]]; then
+        verdict PASS "G: momentum alone switches on a 20-unit brush without a floor (ws $before -> $after) -- this is the reported behaviour"
+    else
+        verdict FAIL "G: the 20-unit brush did not switch even without a floor; the case is not reproducing the report"
+    fi
+else
+    skip_case "G: hover" "the pointer did not reach the card"
+fi
+
+# the same brush with a floor: no selection, just a close
+sed -i 's/commit_min_travel = 0/commit_min_travel = 100/' "$CONF"
+hc reload >/dev/null; sleep 0.9
+check_eq "G: the travel floor is live" "100" "$(option commit_min_travel)"
+open_overview
+if hover_card; then
+    before="$(active_ws)"
+    hc dispatch hyprexpo:simswipe begin >/dev/null
+    hc dispatch hyprexpo:simswipe update 20 2 >/dev/null
+    sleep 0.3
+    hc dispatch hyprexpo:simswipe end >/dev/null
+    sleep 1.2
+    check_eq "G: a 20-unit brush no longer switches with a 100-unit floor" "$before" "$(active_ws)"
+    if overview_open; then verdict FAIL "G: the below-floor swipe must close the overview"; else verdict PASS "G: the below-floor swipe closed without switching"; fi
+
+    # and a deliberate drag still commits
+    open_overview
+    if hover_card; then
+        oracle_ws="$(hc dispatch hyprexpo:expo select >/dev/null; sleep 1.2; active_ws)"
+        open_overview
+        hover_card || skip_case "G: hover" "the pointer did not reach the card"
+        hc dispatch hyprexpo:simswipe begin >/dev/null
+        hc dispatch hyprexpo:simswipe update 200 2 >/dev/null   # 400 units, well past the floor
+        sleep 0.3
+        hc dispatch hyprexpo:simswipe end >/dev/null
+        sleep 1.2
+        check_eq "G: a deliberate drag still commits past the floor" "$oracle_ws" "$(active_ws)"
+    fi
+else
+    skip_case "G: hover" "the pointer did not reach the card"
+fi
+
+# back to the neutral setup for the remaining cases
+sed -i 's/commit_min_travel = 100/commit_min_travel = 0/' "$CONF"
+sed -i 's/momentum_decel = 25/momentum_decel = 0/' "$CONF"
+hc reload >/dev/null; sleep 0.9
+hc dispatch hyprexpo:expo off >/dev/null; sleep 0.4
+
 # ---- F: nothing is marked before the pointer moves ----------------------------------------
 # Opened from workspace 2 with the pointer untouched: the marks must stay unset (they used to be
 # pre-set at construction, with the hit test running against the opening animation's layout,
 # which put the pointer inside tile 0 -- so every overview opened with the first card hovered).
 hc dispatch workspace 2 >/dev/null; sleep 0.6
+move_pointer 2 2 || skip_case "F: pointer" "the pointer did not move off the cards"
 hc dispatch hyprexpo:expo on >/dev/null; sleep 1.2
 read -r hovered focus <<<"$(marks)"
 check_eq "F: nothing is hovered before the pointer moves" "-1" "$hovered"

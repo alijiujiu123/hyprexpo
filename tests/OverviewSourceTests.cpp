@@ -600,8 +600,14 @@ int main() {
            "gesture end re-resolves the origin overview and ignores committed closes");
     expect(gestureEnd.find("OV->setClosing(false)") != std::string::npos,
            "gesture end clears transient closing before threshold evaluation");
-    expect(gestureEnd.find("OV->onSwipeEnd(m_action != EExpoGestureAction::Cancel, PROJECTED)") != std::string::npos,
-           "gesture completion forwards the release projection and selects for every action except cancel");
+    expect(gestureEnd.find("const bool SELECTS = m_action != EExpoGestureAction::Cancel && (m_action != EExpoGestureAction::Commit || m_lastDelta >= commitMinTravel());") !=
+               std::string::npos,
+           "gesture completion selects for every action except cancel, and for commit only past the travel floor");
+    expect(gestureEnd.find("if (m_action == EExpoGestureAction::Commit && !SELECTS)") != std::string::npos && gestureEnd.find("OV->beginCancelSwipe()") != std::string::npos,
+           "a commit below the travel floor is re-targeted at the opening workspace, so it closes without switching");
+    expect(gestureEnd.find("OV->onSwipeEnd(SELECTS, PROJECTED)") != std::string::npos,
+           "gesture completion forwards the release projection with the decision it derived");
+    expectContains(gestureSource, "plugin:hyprexpo:commit_min_travel", "the commit travel floor is read from the live config");
     expect(gestureEnd.find("e.swipe ? releaseProjectedDelta(e.swipe->timeMs) : -1.0") != std::string::npos,
            "gesture completion derives the projection from the release timestamp");
     expect(gestureEnd.find("if (auto* const STILL_ALIVE = overview())") != std::string::npos &&

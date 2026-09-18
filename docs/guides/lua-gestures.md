@@ -124,7 +124,10 @@ the opening workspace again, including after an incomplete expo close was
 previously aimed at another tile.
 The `commit` action is the mirror image: it never opens an overview, and while
 one is open it selects the hovered tile and switches to it, so the drag zooms
-the workspace under the pointer into place. Nothing is hovered until the pointer
+the workspace under the pointer into place. A `commit` swipe must also clear `plugin:hyprexpo:commit_min_travel`
+(gesture delta; default `0`, which lets the release momentum decide alone), so a
+quick brush in the closing direction closes the overview instead of switching to
+the card under the pointer. Nothing is hovered until the pointer
 actually moves — opening the overview leaves every card unmarked — so a swipe
 with the pointer untouched closes the overview without switching away. Register it for the direction that
 closes rather than `expo` there — an `expo` gesture in the closing direction

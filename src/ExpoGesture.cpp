@@ -19,6 +19,12 @@ double momentumDecel() {
     return static_cast<double>(std::max<Hyprlang::INT>(0, CompatHyprlandAPI::intValue("plugin:hyprexpo:momentum_decel")));
 }
 
+// Accumulated travel (in gesture delta, the unit gesture_distance also uses) a `commit` swipe
+// needs before it may switch. Read per event like the momentum keys, so it tunes live.
+double commitMinTravel() {
+    return static_cast<double>(std::max<Hyprlang::INT>(0, CompatHyprlandAPI::intValue("plugin:hyprexpo:commit_min_travel")));
+}
+
 bool momentumDebugEnabled() {
     return CompatHyprlandAPI::intValue("plugin:hyprexpo:momentum_debug") != 0;
 }
@@ -135,12 +141,21 @@ void CExpoGesture::end(const ITrackpadGesture::STrackpadGestureEnd& e) {
     if (momentumDebugEnabled()) {
         const double DISTANCE = static_cast<double>(std::max<Hyprlang::INT>(1, CompatHyprlandAPI::intValue("plugin:hyprexpo:gesture_distance")));
         Log::logger->log(Log::INFO, "HYPREXPO_SWIPE_RELEASE action={} delta={:.2f} velocity={:.1f} projected={:.2f} distance={:.0f} decel={:.0f} window_ms={:.0f}",
-                         m_action == EExpoGestureAction::Expo ? "expo" : "cancel", m_lastDelta, m_velocity, PROJECTED, DISTANCE, momentumDecel(),
+                         m_action == EExpoGestureAction::Expo ? "expo" : (m_action == EExpoGestureAction::Cancel ? "cancel" : "commit"), m_lastDelta, m_velocity, PROJECTED, DISTANCE,
+                         momentumDecel(),
                          momentumWindowSeconds() * 1000.0);
     }
 
+    // A `commit` swipe below the travel floor is not a selection: re-target it at the workspace
+    // the overview opened on, so it closes without switching (what `cancel` does). Without this
+    // the release momentum decides alone, and a short brisk brush in the closing direction is
+    // enough to land on another workspace.
+    const bool SELECTS = m_action != EExpoGestureAction::Cancel && (m_action != EExpoGestureAction::Commit || m_lastDelta >= commitMinTravel());
+    if (m_action == EExpoGestureAction::Commit && !SELECTS)
+        OV->beginCancelSwipe();
+
     OV->setClosing(false);
-    OV->onSwipeEnd(m_action != EExpoGestureAction::Cancel, PROJECTED);
+    OV->onSwipeEnd(SELECTS, PROJECTED);
     // onSwipeEnd can tear the overview down, so re-resolve before touching it.
     if (auto* const STILL_ALIVE = overview())
         STILL_ALIVE->resetSwipe();
