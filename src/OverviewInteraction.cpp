@@ -43,7 +43,11 @@ bool COverview::selectHoveredWorkspace() {
     if (closing)
         return false;
 
-    updateHoveredFromMouse();
+    // The mark the user can see is the card that gets committed. The hover is only ever set by
+    // pointer motion after the overview opened, so a pointer that merely *rests* on a card --
+    // no motion, no border -- does not silently become the selection. Recomputing from the
+    // pointer here did exactly that: three fingers down switched workspaces because the cursor
+    // happened to sit over a thumbnail, which reads as the gesture misfiring on its own.
     closeOnID = hoveredID >= 0 && hoveredID < (int)images.size() ? hoveredID : -1;
     return closeOnID != -1;
 }

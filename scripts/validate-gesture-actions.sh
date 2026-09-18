@@ -29,6 +29,12 @@
 #                                             without travelling: with commit_min_travel set it
 #                                             closes without switching, while a deliberate drag
 #                                             still commits
+#   H  pointer resting on a card, no motion   a long commit swipe must not switch: the mark is
+#                                             what gets committed, and a pointer that merely
+#                                             rests on a thumbnail was never a selection (the
+#                                             pre-fix code recomputed the hover from the pointer
+#                                             position at the start of the gesture, so any
+#                                             commit swipe switched to whatever it rested on)
 #   F2 the same on the swipe path             a gesture-opened overview starts from the zoomed
 #                                             layout, so the pre-fix construction-time hit test
 #                                             mapped any pointer position to tile 0: every
@@ -389,6 +395,37 @@ swipe_down 200 2
 check_eq "F: commit with an untouched pointer does not switch" "$before" "$(active_ws)"
 if overview_open; then verdict FAIL "F: a commit swipe still closes the overview"; else verdict PASS "F: the overview closed without switching"; fi
 hc dispatch workspace 1 >/dev/null; sleep 0.4
+
+# ---- H: the mark decides, not the pointer's resting position -------------------------------
+hc dispatch hyprexpo:expo off >/dev/null; sleep 0.5
+open_overview
+read_cards || skip_case "H: geometry" "the card geometry could not be read"
+# park the pointer on card 2 without any motion after the overview opened: no mark, so the
+# commit gesture must close without switching even though the pointer sits on a card
+hc dispatch hyprexpo:expo off >/dev/null; sleep 0.4
+move_pointer "$CARD2_X" "$CARD2_Y" || skip_case "H: pointer" "the pointer did not reach the card"
+open_overview
+read -r hovered focus <<<"$(marks)"
+check_eq "H: a resting pointer does not mark a card" "-1" "$hovered"
+before="$(active_ws)"
+hc dispatch hyprexpo:simswipe begin >/dev/null
+hc dispatch hyprexpo:simswipe update 200 2 >/dev/null      # a long, deliberate drag
+sleep 0.3
+hc dispatch hyprexpo:simswipe end >/dev/null
+sleep 1.2
+check_eq "H: a long commit swipe with no mark does not switch" "$before" "$(active_ws)"
+if overview_open; then verdict FAIL "H: the swipe must still close the overview"; else verdict PASS "H: the overview closed without switching"; fi
+
+# and with a mark (motion after opening) the same swipe does switch -- covered by B, so only the
+# mark itself is checked here
+open_overview
+if hover_card; then
+    read -r hovered focus <<<"$(marks)"
+    if [[ $hovered != "-1" ]]; then verdict PASS "H: pointer motion marks a card again (hovered=$hovered)"; else verdict FAIL "H: motion did not mark a card"; fi
+else
+    skip_case "H: hover" "the pointer did not reach the card"
+fi
+hc dispatch hyprexpo:expo off >/dev/null; sleep 0.5
 
 # ---- D: the same swipe under the cancel action must not switch ---------------------------
 hc dispatch hyprexpo:expo off >/dev/null; sleep 0.5
