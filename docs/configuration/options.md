@@ -132,10 +132,13 @@ What this does and does not do:
   timing, browsers with running timers, anything that redraws while hidden) become live
   previews.
 - Workspaces whose clients are animation-callback paced (most toolkits, browsers with
-  frame-callback driven animation) are frozen by Wayland itself while hidden: they have no
-  callbacks to drive them, so there is nothing to detect and nothing to show. Driving them
-  would mean sending frame callbacks into every hidden workspace, which renders the whole
-  desktop continuously — that is the expensive path this option avoids.
+  frame-callback driven animation) would be frozen by Wayland itself while hidden: they have no
+  callbacks to drive them, so a player parked on a background workspace stops on its first
+  frame. The grid drives them instead: every frame, each window on a workspace shown in the
+  grid is handed a `wl_surface.frame` callback, which is what the compositor does for the
+  visible workspace. That is why such tiles are live at all, and it is not free — those clients
+  really do render at their own cadence while the overview is open, which is the cost the rate
+  limits below are calibrated against.
 - One recapture is a full offscreen render of that workspace at monitor resolution, and it
   also keeps the compositor rendering frames it would otherwise skip. Measured on a
   2880x1800 screen (Radeon 780M, full-screen windows in the tile): ~1.8 ms of GPU per

@@ -78,7 +78,6 @@ inline constexpr int         DIRTY_MAX_PER_SECOND_DEFAULT = 60;
 // on a background workspace, a page that paused) waits for a callback that never comes and
 // freezes on its first frame. Measured: such a player starts producing frames again as soon as
 // the grid drives it. Cost: those clients really do render at that cadence.
-inline constexpr int         DIRTY_DRIVE_DEFAULT          = 1;
 // On by default: draws the workspace label of every tile that is being recaptured in red, and
 // logs a per-second HYPREXPO_DIRTY line (commits/recaptures/pending/per workspace) so a tile
 // that keeps being rendered while nothing in it moves is visible and countable.
