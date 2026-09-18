@@ -32,9 +32,11 @@ std::string COverview::debugGeometry() const {
     const auto POSV    = pos->value();
     const auto SCALE   = MON->m_scale;
 
-    return std::format("canvas={:.1f}x{:.1f} pos=({:.1f},{:.1f}) closing={} pct={:.3f} anim={:.3f} gap={:.1f} outer={:.1f} tile=(x{:.1f} y{:.1f} w{:.1f} h{:.1f}) screen={:.0f}x{:.0f} scale={:.2f}",
+    const auto MOUSE = g_pInputManager->getMouseCoordsInternal() - MON->m_position;
+
+    return std::format("canvas={:.1f}x{:.1f} pos=({:.1f},{:.1f}) closing={} pct={:.3f} anim={:.3f} gap={:.1f} outer={:.1f} tile=(x{:.1f} y{:.1f} w{:.1f} h{:.1f}) screen={:.0f}x{:.0f} scale={:.2f} hovered={} focus={} opened={} mouse=({:.1f},{:.1f})",
                        size->value().x, size->value().y, POSV.x, POSV.y, closing ? 1 : 0, PERCENT, size->getPercent(), GAPSIZE, OUTER, BOX.x + POSV.x / SCALE,
-                       BOX.y + POSV.y / SCALE, BOX.w, BOX.h, MON->m_size.x, MON->m_size.y, SCALE);
+                       BOX.y + POSV.y / SCALE, BOX.w, BOX.h, MON->m_size.x, MON->m_size.y, SCALE, hoveredID, kbFocusID, openedID, MOUSE.x, MOUSE.y);
 }
 
 bool COverview::selectHoveredWorkspace() {
@@ -94,7 +96,11 @@ void COverview::updateHoveredFromMouse() {
     if (!MON)
         return;
 
-    const int newHoveredID = tileIndexAtPoint(lastMousePosLocal, size->value(), GAP_WIDTH, currentOuterInset(), true);
+    // The tiles are drawn scaled by the monitor and translated by `pos`, so the hit test has to
+    // undo that translation: without it the pointer is matched against the untranslated grid
+    // and any state that shifts the view (the opening animation, a bounce-back, a closing drag)
+    // marks a card the pointer is not on.
+    const int newHoveredID = tileIndexAtPoint(lastMousePosLocal - pos->value() / MON->m_scale, size->value(), GAP_WIDTH, currentOuterInset(), true);
     if (newHoveredID == hoveredID)
         return;
 

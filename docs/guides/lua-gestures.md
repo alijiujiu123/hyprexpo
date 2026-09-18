@@ -124,7 +124,9 @@ the opening workspace again, including after an incomplete expo close was
 previously aimed at another tile.
 The `commit` action is the mirror image: it never opens an overview, and while
 one is open it selects the hovered tile and switches to it, so the drag zooms
-the workspace under the pointer into place. Register it for the direction that
+the workspace under the pointer into place. Nothing is hovered until the pointer
+actually moves — opening the overview leaves every card unmarked — so a swipe
+with the pointer untouched closes the overview without switching away. Register it for the direction that
 closes rather than `expo` there — an `expo` gesture in the closing direction
 opens an overview that follows the finger, which reads as the summon failing
 (a short swipe) or the screen jumping (a long one). Like `expo`, an incomplete

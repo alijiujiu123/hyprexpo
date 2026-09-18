@@ -5,11 +5,10 @@
 #   cancel  closes interactively without selecting anything
 #   commit  only ever commits the hovered card, and does nothing without an overview
 #
-# The interesting claims are the last two lines of that table, and neither is observable
-# without an overview that is already open with a card under the pointer, so this script
-# drives the real gesture path with the synthetic swipe dispatcher (`hyprexpo:simswipe`,
-# hyprlang only) and places the pointer with `vptr` (real motion events -- a warp or a
-# zero-distance move does not refresh hover).
+# None of that is observable without an overview that is already open with a card under the
+# pointer, so this script drives the real gesture path with the synthetic swipe dispatcher
+# (`hyprexpo:simswipe`, hyprlang only) and reads the plugin's own state from its diagnostic
+# line (`debugGeometry()`, which reports hovered/focus/opened along with the geometry).
 #
 # Cases, all asserted:
 #   A  swipe while the overview is closed     inert: no workspace change, no overview
@@ -18,25 +17,30 @@
 #                                             gesture must land on the same workspace, the
 #                                             drag must report closing, and the overview must
 #                                             be gone afterwards -- twice
-#   C  overview open, pointer off the cards   no workspace change
+#   C  overview open, pointer off the cards   no card is hovered, and the swipe does not switch
 #   D  the same swipe, gesture_action=cancel  no workspace change
-#   E  gesture_action=sideways                the swipe stays inert: the value registers
-#                                             nothing
+#   E  gesture_action=sideways                the swipe stays inert: the value registers nothing
+#   F  opened from a non-first workspace      nothing is marked until the pointer moves: the
+#      with the pointer untouched             diagnostic line must report hovered=-1 and
+#                                             focus=-1, `expo select` must not switch, and a
+#                                             commit swipe must not switch either
+#   F2 the same on the swipe path             a gesture-opened overview starts from the zoomed
+#                                             layout, so the pre-fix construction-time hit test
+#                                             mapped any pointer position to tile 0: every
+#                                             swipe-opened overview had the first card marked
+#
+# The pointer is placed with `hyprctl dispatch movecursor`, which does refresh the hover (it
+# reaches the compositor's own pointer position); a real motion event is what updates it, so
+# nothing here needs a host-side injector.
 #
 # Prerequisites: jq, python3, a terminal (kitty/ghostty/alacritty/foot/wezterm), and the
 # Hyprland version this checkout targets (run-nested.sh builds the plugin against it). The
 # first run pays for that build.
 #
-# `vptr` (from omarchy-setup-kit's tools module) is needed for the hover cases; without it,
-# or when the nested surface is narrower than the card it would have to reach (the host
-# tiles the sandbox window, so the surface can be smaller than the scene the nested
-# compositor believes it has), B and C are skipped -- and by default that fails the run, so
-# a CI machine cannot pass by skipping. Pass --allow-skips to accept a degraded run.
-#
-# It runs a sandbox window in this session, moves the pointer, and opens a terminal inside
-# the sandbox. Do not run it while a trackpad gesture is in flight. The sandbox and its plugin
-# build are cached in $XDG_CACHE_HOME/hyprexpo-gesture-check (a private path, so a dev build
-# that happens to be loaded in the live session is never rewritten); delete it to build fresh.
+# It runs a sandbox window in this session and opens a terminal inside the sandbox. Do not
+# run it while a trackpad gesture is in flight. The sandbox and its plugin build are cached in
+# $XDG_CACHE_HOME/hyprexpo-gesture-check (a private path, so a dev build that happens to be
+# loaded in the live session is never rewritten); delete it to build fresh.
 #
 # Usage: scripts/validate-gesture-actions.sh [--allow-skips] [--keep]
 #   HYPREXPO_DEV_SO=<path>   plugin to test (default: run-nested.sh's dev build)
@@ -65,8 +69,6 @@ if [[ -z $TERMINAL ]]; then
     done
 fi
 [[ -n $TERMINAL ]] || { printf 'FAIL: no terminal found to keep a workspace alive\n' >&2; exit 1; }
-HAVE_VPTR=false
-command -v vptr >/dev/null && HAVE_VPTR=true
 
 EVID="$(mktemp -d "${TMPDIR:-/tmp}/hyprexpo-gestures-XXXXXX")"
 # A private, stable cache: run-nested.sh builds the plugin into $XDG_CACHE_HOME/hyprexpo, and
@@ -92,7 +94,7 @@ verdict() { # verdict <PASS|FAIL|SKIP> <description>
 check_eq() { # check_eq <description> <expected> <actual>
     if [[ $2 == "$3" ]]; then verdict PASS "$1 (=$3)"; else verdict FAIL "$1: expected '$2', got '$3'"; fi
 }
-skip_hover() { verdict SKIP "$1 -- $2"; }
+skip_case() { verdict SKIP "$1 -- $2"; }
 
 cleanup() {
     rc=$?
@@ -110,16 +112,12 @@ mkdir -p "$CACHE"
 cd "$REPO_ROOT"
 XDG_CACHE_HOME="$CACHE" ./scripts/run-nested.sh >"$EVID/nested-stdout.log" 2>&1 &
 NESTED_PID=$!
-# Wait until run-nested.sh has *finished* writing the config: it writes it with one redirect,
-# so appending while that write is still in flight loses the block (cat keeps writing at its
-# own offset). The last line of its generated config is the submap reset.
 for _ in $(seq 1 900); do
     kill -0 "$NESTED_PID" 2>/dev/null || { printf 'FAIL: the sandbox exited before it was configured; see %s\n' "$EVID/nested-stdout.log" >&2; exit 1; }
     grep -q '^submap = reset' "$CONF" 2>/dev/null && break
     sleep 0.1
 done
 grep -q '^submap = reset' "$CONF" 2>/dev/null || { printf 'FAIL: the sandbox never finished writing %s\n' "$CONF" >&2; exit 1; }
-
 
 for _ in $(seq 1 900); do
     kill -0 "$NESTED_PID" 2>/dev/null || { printf 'FAIL: the sandbox died while starting up; see %s\n' "$EVID/nested-stdout.log" >&2; exit 1; }
@@ -133,6 +131,7 @@ for _ in $(seq 1 240); do
     hc monitors -j >/dev/null 2>&1 && break
     sleep 0.25
 done
+
 # Append the keys only once the sandbox is up: while run-nested.sh is still writing the config,
 # an append lands under the writer's file offset and is overwritten. A reload after the append
 # is what makes them live (it re-reads the same file the instance was started with).
@@ -162,12 +161,23 @@ done
 # ---- helpers ------------------------------------------------------------------------------
 active_ws() { hc activeworkspace -j | jq -r .id; }
 option() { hc getoption "plugin:hyprexpo:$1" | head -1 | awk '{print $NF}'; }
-overview_open() { # a begin logs the geometry; "no-overview" means there is none
+geometry() { # one debugGeometry() line for the current overview, or empty without one
     : > "$SLOG"
     hc dispatch hyprexpo:simswipe begin >/dev/null
     hc dispatch hyprexpo:simswipe end >/dev/null
     sleep 0.2
-    ! grep -q no-overview "$SLOG"
+    grep -v no-overview "$SLOG" | tail -1
+}
+overview_open() { [[ -n "$(geometry)" ]]; }
+marks() { # "hovered focus" from the diagnostic line, "-1 -1" when nothing is marked
+    local line
+    line="$(geometry)"
+    python3 - "$line" <<'PY'
+import re, sys
+hovered = re.search(r"hovered=(-?\d+)", sys.argv[1]) if sys.argv[1] else None
+focus = re.search(r"focus=(-?\d+)", sys.argv[1]) if sys.argv[1] else None
+print(f"{hovered.group(1) if hovered else '?'} {focus.group(1) if focus else '?'}")
+PY
 }
 swipe_down() { # swipe_down <units> <events>  (the first event is consumed by the gesture)
     hc dispatch hyprexpo:simswipe begin >/dev/null
@@ -180,42 +190,28 @@ open_overview() {
     hc dispatch workspace 1 >/dev/null; sleep 0.4
     hc dispatch hyprexpo:expo on >/dev/null; sleep 1.2
 }
-nested_window() { # the sandbox window in this session: host position and real surface size
-    hyprctl -j clients | jq -r --argjson pid "$NESTED_PID" '.[] | select(.pid == $pid) | "\(.at[0]) \(.at[1]) \(.size[0]) \(.size[1])"' | head -1
-}
-# Lands the pointer anywhere inside a box, not on an exact pixel: which card it ends up on is
-# decided by the oracle, and asking for an exact point fails whenever the host screen edge
-# clamps the motion. The move has to be nonzero (a zero delta produces no motion event).
-point_inside() { # point_inside <x0> <x1> <y0> <y1>
-    local mid_x=$(( ($1 + $2) / 2 )) mid_y=$(( ($3 + $4) / 2 )) tries=0
+move_pointer() { # move_pointer <nested x> <nested y>; movecursor refreshes the hover
+    local tries=0
     while :; do
-        local win_x win_y surf_w surf_h cur_x cur_y new_x new_y
-        read -r win_x win_y surf_w surf_h <<<"$(nested_window)"
-        read -r cur_x cur_y <<<"$(hyprctl cursorpos | tr -d ',')"
-        vptr move "$((win_x + mid_x - cur_x))" "$((win_y + mid_y - cur_y))" 10 6 >/dev/null 2>&1 || true
+        hc dispatch movecursor "$1" "$2" >/dev/null
         sleep 0.3
-        read -r new_x new_y <<<"$(hc cursorpos | tr -d ',')"
-        new_x=${new_x%%.*}; new_y=${new_y%%.*}
-        if (( new_x >= $1 && new_x <= $2 && new_y >= $3 && new_y <= $4 )); then
-            return 0
-        fi
+        local now_x now_y
+        read -r now_x now_y <<<"$(hc cursorpos | tr -d ',')"
+        now_x=${now_x%%.*}; now_y=${now_y%%.*}
+        [[ $now_x == "$1" && $now_y == "$2" ]] && return 0
         tries=$((tries + 1))
-        if [[ $tries -ge 5 ]]; then
-            printf 'pointer did not reach the card: box %s..%s x %s..%s, nested pointer %s,%s, sandbox window %s,%s surface %sx%s, host pointer %s\n' \
-                "$1" "$2" "$3" "$4" "$new_x" "$new_y" "$win_x" "$win_y" "$surf_w" "$surf_h" "$(hyprctl cursorpos | tr -d ',')" >&2
+        if [[ $tries -ge 3 ]]; then
+            printf 'the pointer did not reach %s,%s (it is at %s,%s)\n' "$1" "$2" "$now_x" "$now_y" >&2
             return 1
         fi
     done
 }
-CARD1_BOX=''; CARD2_BOX=''; SURFACE_W=0
-read_cards() { # card centres from the plugin's own geometry (the layout follows the surface)
-    : > "$SLOG"
-    hc dispatch hyprexpo:simswipe begin >/dev/null
-    hc dispatch hyprexpo:simswipe end >/dev/null
-    sleep 0.2
-    local geo tile_x tile_y tile_w tile_h gap
-    geo="$(grep -v no-overview "$SLOG" | tail -1)"
-    read -r tile_x tile_y tile_w tile_h gap < <(python3 - "$geo" <<'PY'
+CARD1_X=0; CARD1_Y=0; CARD2_X=0; CARD2_Y=0
+read_cards() { # card centres from the plugin's own geometry
+    local line tile_x tile_y tile_w tile_h gap
+    line="$(geometry)"
+    [[ -n $line ]] || return 1
+    read -r tile_x tile_y tile_w tile_h gap < <(python3 - "$line" <<'PY'
 import re, sys
 line = sys.argv[1]
 tile = re.search(r"tile=\(x([\d.]+) y([\d.]+) w([\d.]+) h([\d.]+)\)", line)
@@ -223,15 +219,14 @@ gap = re.search(r"gap=([\d.]+)", line)
 print(f"{tile.group(1)} {tile.group(2)} {tile.group(3)} {tile.group(4)} {gap.group(1)}")
 PY
 )
-    CARD1_BOX="$(python3 -c "print(int($tile_x), int($tile_x + $tile_w), int($tile_y), int($tile_y + $tile_h))")"
-    CARD2_BOX="$(python3 -c "print(int($tile_x + $tile_w + $gap), int($tile_x + 2*$tile_w + $gap), int($tile_y), int($tile_y + $tile_h))")"
-    SURFACE_W="$(nested_window | awk '{print $3}')"
-    CARD2_X="${CARD2_BOX%% *}"
+    CARD1_X="$(python3 -c "print(int($tile_x + $tile_w/2))")"
+    CARD1_Y="$(python3 -c "print(int($tile_y + $tile_h/2))")"
+    CARD2_X="$(python3 -c "print(int($tile_x + $tile_w + $gap + $tile_w/2))")"
+    CARD2_Y="$CARD1_Y"
 }
-# Two nonzero moves: card 1 first, then card 2, so the hover is rebuilt from motion events.
-hover_card() { # two nonzero moves, so hover is rebuilt from real motion events
-    read_cards
-    point_inside $CARD1_BOX && point_inside $CARD2_BOX
+hover_card() { # move off the cards first, then onto the second card
+    read_cards || return 1
+    move_pointer 2 2 && move_pointer "$CARD2_X" "$CARD2_Y"
 }
 
 # ---- fixture ------------------------------------------------------------------------------
@@ -265,58 +260,62 @@ swipe_down 200 2
 check_eq "A: swipe with no overview does not switch" "$before" "$(active_ws)"
 if overview_open; then verdict FAIL "A: swipe with no overview must not create one"; else verdict PASS "A: no overview was created"; fi
 
-# ---- B/C: hover cases (need vptr and a card that fits in the real surface) ---------------
+# ---- B: overview open with a card hovered: oracle and gesture must agree ------------------
+for round in 1 2; do
+    open_overview
+    if ! hover_card; then skip_case "B round $round: hover" "the pointer did not reach the card"; continue; fi
+    oracle_ws="$(hc dispatch hyprexpo:expo select >/dev/null; sleep 1.2; active_ws)"
+    if [[ $oracle_ws == 1 ]]; then
+        verdict FAIL "B round $round: the oracle did not select a card other than the current one (hover did not take)"
+        continue
+    fi
+    verdict PASS "B round $round: oracle committed the hovered card (ws $oracle_ws)"
+
+    open_overview
+    if ! hover_card; then skip_case "B round $round: hover" "the pointer did not reach the card"; continue; fi
+    : > "$SLOG"
+    hc dispatch hyprexpo:simswipe begin >/dev/null
+    hc dispatch hyprexpo:simswipe update 200 2 >/dev/null
+    sleep 0.3
+    if grep -q 'closing=1' "$SLOG"; then verdict PASS "B round $round: the drag reports closing"; else verdict FAIL "B round $round: the drag did not enter the closing state"; fi
+    hc dispatch hyprexpo:simswipe end >/dev/null
+    sleep 1.2
+    check_eq "B round $round: the commit gesture lands where the oracle did" "$oracle_ws" "$(active_ws)"
+    if overview_open; then verdict FAIL "B round $round: the overview must be gone after a commit"; else verdict PASS "B round $round: the overview closed"; fi
+done
+
+# ---- C: pointer off the cards -- nothing hovered, so nothing to commit --------------------
 open_overview
-read_cards
-HOVER_OK=true
-if [[ $HAVE_VPTR != true ]]; then
-    HOVER_OK=false
-    skip_hover "B/C: hover" "vptr is not installed (real pointer motion is required)"
-elif (( CARD2_X > SURFACE_W )); then
-    HOVER_OK=false
-    skip_hover "B/C: hover" "card centre x=$CARD2_X is outside the ${SURFACE_W}px nested surface"
+if move_pointer 2 2; then
+    read -r hovered focus <<<"$(marks)"
+    check_eq "C: no card is hovered off the cards" "-1" "$hovered"
+    before="$(active_ws)"
+    swipe_down 200 2
+    check_eq "C: commit with no card hovered does not switch" "$before" "$(active_ws)"
+else
+    skip_case "C: hover" "the pointer did not move off the cards"
 fi
 hc dispatch hyprexpo:expo off >/dev/null; sleep 0.5
 
-if [[ $HOVER_OK == true ]]; then
-    for round in 1 2; do
-        # the oracle: the `expo select` dispatcher commits the hovered card by another path
-        open_overview
-        if ! hover_card; then
-            skip_hover "B round $round: hover" "the pointer did not settle on the card"
-            continue
-        fi
-        oracle_ws="$(hc dispatch hyprexpo:expo select >/dev/null; sleep 1.2; active_ws)"
-        if [[ $oracle_ws == 1 ]]; then
-            verdict FAIL "B round $round: the oracle did not select a card other than the current one (hover did not take)"
-            continue
-        fi
-        verdict PASS "B round $round: oracle committed the hovered card (ws $oracle_ws)"
-
-        # the gesture, from the same pointer
-        open_overview
-        if ! hover_card; then
-            skip_hover "B round $round: hover" "the pointer did not settle on the card"
-            continue
-        fi
-        : > "$SLOG"
-        hc dispatch hyprexpo:simswipe begin >/dev/null
-        hc dispatch hyprexpo:simswipe update 200 2 >/dev/null
-        sleep 0.3
-        if grep -q 'closing=1' "$SLOG"; then verdict PASS "B round $round: the drag reports closing"; else verdict FAIL "B round $round: the drag did not enter the closing state"; fi
-        hc dispatch hyprexpo:simswipe end >/dev/null
-        sleep 1.2
-        check_eq "B round $round: the commit gesture lands where the oracle did" "$oracle_ws" "$(active_ws)"
-        if overview_open; then verdict FAIL "B round $round: the overview must be gone after a commit"; else verdict PASS "B round $round: the overview closed"; fi
-    done
-
-    # C: pointer off the cards -- nothing to select, so the overview just closes
-    open_overview
-    point_inside 0 4 0 4 || skip_hover "C: hover" "the pointer did not settle off the cards"
-    before="$(active_ws)"
-    swipe_down 200 2
-    check_eq "C: commit with the pointer off the cards does not switch" "$before" "$(active_ws)"
-fi
+# ---- F: nothing is marked before the pointer moves ----------------------------------------
+# Opened from workspace 2 with the pointer untouched: the marks must stay unset (they used to be
+# pre-set at construction, with the hit test running against the opening animation's layout,
+# which put the pointer inside tile 0 -- so every overview opened with the first card hovered).
+hc dispatch workspace 2 >/dev/null; sleep 0.6
+hc dispatch hyprexpo:expo on >/dev/null; sleep 1.2
+read -r hovered focus <<<"$(marks)"
+check_eq "F: nothing is hovered before the pointer moves" "-1" "$hovered"
+check_eq "F: nothing is keyboard-focused before a key is pressed" "-1" "$focus"
+before="$(active_ws)"
+hc dispatch hyprexpo:expo select >/dev/null; sleep 1.2
+check_eq "F: select with an untouched pointer does not switch" "$before" "$(active_ws)"
+hc dispatch hyprexpo:expo off >/dev/null; sleep 0.5
+hc dispatch hyprexpo:expo on >/dev/null; sleep 1.2
+before="$(active_ws)"
+swipe_down 200 2
+check_eq "F: commit with an untouched pointer does not switch" "$before" "$(active_ws)"
+if overview_open; then verdict FAIL "F: a commit swipe still closes the overview"; else verdict PASS "F: the overview closed without switching"; fi
+hc dispatch workspace 1 >/dev/null; sleep 0.4
 
 # ---- D: the same swipe under the cancel action must not switch ---------------------------
 hc dispatch hyprexpo:expo off >/dev/null; sleep 0.5
@@ -324,7 +323,7 @@ sed -i 's/gesture_action = commit/gesture_action = cancel/' "$CONF"
 hc reload >/dev/null; sleep 0.9
 check_eq "config key gesture_action follows the config" "cancel" "$(option gesture_action)"
 open_overview
-if [[ $HOVER_OK == true ]]; then hover_card || skip_hover "D: hover" "the pointer did not settle on the card"; fi
+hover_card || skip_case "D: hover" "the pointer did not reach the card"
 before="$(active_ws)"
 swipe_down 200 2
 check_eq "D: cancel does not commit the hovered card" "$before" "$(active_ws)"
@@ -337,6 +336,32 @@ before="$(active_ws)"
 swipe_down 200 2
 check_eq "E: an invalid action leaves the swipe inert" "$before" "$(active_ws)"
 if overview_open; then verdict FAIL "E: an invalid action must register nothing"; else verdict PASS "E: no overview appeared"; fi
+
+# ---- F2: the same claims on the swipe path (the one the report came from) ------------------
+# Registered up = expo for this phase, i.e. the configuration a real session uses to open the
+# overview with three fingers.
+hc dispatch hyprexpo:expo off >/dev/null; sleep 0.5
+sed -i 's/gesture_direction = .*/gesture_direction = up/' "$CONF"
+sed -i 's/gesture_action = .*/gesture_action = expo/' "$CONF"
+hc reload >/dev/null; sleep 0.9
+check_eq "F2: the up direction is registered as expo" "up" "$(option gesture_direction)"
+check_eq "F2: gesture_action is expo for the swipe path" "expo" "$(option gesture_action)"
+hc dispatch workspace 1 >/dev/null; sleep 0.4
+if move_pointer 2 2; then
+    hc dispatch hyprexpo:simswipe begin >/dev/null
+    hc dispatch hyprexpo:simswipe update -50 20 >/dev/null    # fingers up, well past full open
+    hc dispatch hyprexpo:simswipe end >/dev/null
+    sleep 1.2
+    if overview_open; then verdict PASS "F2: an up swipe with an untouched pointer opened the overview"; else verdict FAIL "F2: an up swipe did not open the overview"; fi
+    read -r hovered focus <<<"$(marks)"
+    check_eq "F2: nothing is hovered after a swipe-open with an untouched pointer" "-1" "$hovered"
+    check_eq "F2: nothing is keyboard-focused after a swipe-open" "-1" "$focus"
+    before="$(active_ws)"
+    hc dispatch hyprexpo:expo select >/dev/null; sleep 1.2
+    check_eq "F2: select after a swipe-open does not switch" "$before" "$(active_ws)"
+else
+    skip_case "F2: hover" "the pointer did not move off the cards"
+fi
 
 # ---- verdict ------------------------------------------------------------------------------
 printf '\n%s\n' "----- $(basename "$0") -----"

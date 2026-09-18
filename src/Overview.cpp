@@ -1385,11 +1385,16 @@ COverview::COverview(PHLWORKSPACE startedOn_, PHLMONITOR monitor_, bool swipe_, 
     lastTileCapture.assign(images.size(), std::chrono::steady_clock::now());
     dirtyLogTime = std::chrono::steady_clock::now();
 
-    ensureOverviewCursorVisible(true, true);
-
     lastMousePosLocal = g_pInputManager->getMouseCoordsInternal() - pMonitor->m_position;
-    updateHoveredFromMouse();
-    kbFocusID = openedID;
+
+    // Neither mark is set up front. Where the pointer happens to rest says nothing about the
+    // card the user means -- the hover belongs to the next real pointer move -- and the focus
+    // ring belongs to keyboard navigation, which initializes it on its first key (moveFocus
+    // and onKbConfirm both call ensureKbFocusInitialized). Pre-setting the hover here also ran
+    // the hit test against the construction-time animation value, whose layout puts the pointer
+    // inside tile 0, so every overview used to open with the *first* card marked as hovered.
+
+    ensureOverviewCursorVisible(true, true);
 
     auto onCursorMove = [this](Event::SCallbackInfo& info) {
         if (closing)

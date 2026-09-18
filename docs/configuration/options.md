@@ -213,6 +213,8 @@ plugin {
 }
 ```
 
+Nothing is hovered, and nothing holds keyboard focus, until the user acts: opening the overview marks no card, moving the pointer marks the one under it, and the first arrow key (or confirmation) starts the focus ring from the workspace the overview opened on. A commit therefore pulls out the card the pointer has actually picked — with the pointer still where it was when the overview opened, there is nothing to pull out and the overview just closes.
+
 A single swipe in the closing direction — three fingers down switching to whatever the pointer hovers, and doing nothing while the overview is closed:
 
 ```ini
