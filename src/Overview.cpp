@@ -133,6 +133,9 @@ static Config::INTEGER intDefault(const std::string& name) {
     static const std::map<std::string, Config::INTEGER> DEFAULTS = {
         {"plugin:hyprexpo:columns", HyprexpoConfig::COLUMNS_DEFAULT},
         {"plugin:hyprexpo:rows", HyprexpoConfig::ROWS_DEFAULT},
+        // 1 = give workspaces whose tiled algorithm is `scrolling` the scrolling overview instead of the
+        // grid. Off by default: that session renders nothing on this machine, so the grid is the overview.
+        {"plugin:hyprexpo:scrolling_overview", 0},
         {"plugin:hyprexpo:gaps_in", HyprexpoConfig::GAPS_IN_DEFAULT},
         {"plugin:hyprexpo:bg_col", HyprexpoConfig::BG_COL_DEFAULT},
         {"plugin:hyprexpo:gesture_distance", HyprexpoConfig::GESTURE_DISTANCE_DEFAULT},
@@ -1225,7 +1228,12 @@ void COverview::fillDynamicGrid() {
     // affordance too many.
     const size_t CARDS = visibleWorkspaceIDs.size();
 
-    gridShape = Hyprexpo::computeDynamicGridShape((int)CARDS);
+    // At least 2x2, whatever the count: with one tile the "zoom" the open/close animation runs on
+    // degenerates to the screen itself, so the swipe opened the overview and closed it again in the same
+    // gesture (the "swipe up does nothing when there is only one workspace" report, 2026-09-22). A
+    // partial grid is normal here — the layout centres the tiles it has.
+    const auto SHAPE = Hyprexpo::computeDynamicGridShape((int)CARDS);
+    gridShape        = {std::max(2, SHAPE.cols), std::max(2, SHAPE.rows)};
     images.resize(CARDS);
     for (size_t i = 0; i < visibleWorkspaceIDs.size(); ++i)
         images[i].workspaceID = visibleWorkspaceIDs[i];
@@ -1253,8 +1261,12 @@ CBox COverview::addButtonBox() const {
     if (LAST.w <= 0.0)
         return {};
 
-    const double SIDE = std::clamp(LAST.h * 0.22, 24.0, 56.0);
-    return {std::max(0.0, (CANVAS.x - SIDE) / 2.0), std::min(CANVAS.y - SIDE - 8.0, LAST.y + LAST.h + GAP_WIDTH * 2.0), SIDE, SIDE};
+    // The canvas is the *zoomed* grid, which is taller than the monitor; the button has to stay inside
+    // what is actually visible, so the clamp is against the monitor, not the canvas. Getting this wrong
+    // put the "+" off-screen with a 2x2 grid, which reads as a broken layout (reported 2026-09-22).
+    const double SIDE   = std::clamp(LAST.h * 0.22, 24.0, 56.0);
+    const double BOTTOM = std::max(CANVAS.y - SIDE - GAP_WIDTH * 2.0, MON->m_size.y - SIDE - 8.0);
+    return {std::max(0.0, (CANVAS.x - SIDE) / 2.0), std::min(BOTTOM, LAST.y + LAST.h + GAP_WIDTH * 2.0), SIDE, SIDE};
 }
 
 bool COverview::pointerOverAddButton() const {
