@@ -9,6 +9,9 @@ endif
 # The VERSION file is the single source of truth (see scripts/version.sh).
 # VERSION_BASE is the release version used for tagging/checks; VERSION is what
 # gets baked into the binary (adds a -dev marker for non-release builds).
+# Where `make publish` pushes: our fork, never upstream (the kit's rule — no upstream work for
+# this fork; the guard in the target below enforces it if the value is changed).
+PUBLISH_REMOTE ?= fork
 VERSION_FILE := VERSION
 VERSION_BASE := $(shell sh scripts/version.sh --base)
 VERSION      := $(shell sh scripts/version.sh)
@@ -154,8 +157,16 @@ publish:
 	if ! git rev-parse -q --verify "refs/tags/$$v" >/dev/null; then \
 		echo "error: tag $$v does not exist; run 'make tag' first"; exit 1; fi; \
 	./scripts/check-commit-pins.sh "$$v"; \
-	git push origin HEAD; \
-	git push origin "$$v"; \
+	remote='$(PUBLISH_REMOTE)'; \
+	url=$$(git remote get-url "$$remote" 2>/dev/null) || { \
+		echo "error: no '$$remote' remote; add our fork (git remote add fork https://github.com/alijiujiu123/hyprexpo.git) or set PUBLISH_REMOTE="; exit 1; }; \
+	case "$$url" in \
+		*sandwichfarm/hyprexpo*) \
+			echo "error: '$$remote' points at upstream ($$url) — this fork publishes to alijiujiu123/hyprexpo and never to upstream (kit rule: no upstream PRs for the hyprexpo fork); set PUBLISH_REMOTE to our fork"; exit 1 ;; \
+	esac; \
+	echo "publishing to $$remote ($$url)"; \
+	git push "$$remote" HEAD; \
+	git push "$$remote" "$$v"; \
 	echo "pushed branch + tag $$v; the release workflow will build and publish."
 
 # Verify the plugin-side hash in every hyprpm commit pin is part of the release
