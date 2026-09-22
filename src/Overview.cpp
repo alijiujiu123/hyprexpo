@@ -1253,20 +1253,24 @@ void COverview::fillDynamicGrid() {
 // as soon as its screen moves past it. So the button is the way to make one, not a reserved slot.
 CBox COverview::addButtonBox() const {
     const auto MON = pMonitor.lock();
-    if (!MON || !size || images.empty())
+    if (!MON || !size || !pos || images.empty())
         return {};
 
-    const auto CANVAS = size->value();
-    const auto LAST   = tileBoxForIndex((int)images.size() - 1, CANVAS, GAP_WIDTH, currentOuterInset(), true);
-    if (LAST.w <= 0.0)
-        return {};
+    // The overview is a *zoomable canvas*: the whole grid is deliberately larger than the screen (the
+    // camera sits on the focused card), so anything placed "under the last row" is usually off-screen —
+    // which is why the button was clipped in half. It is therefore anchored to the **screen**: its
+    // position is computed in screen units (bottom centre), then mapped back into canvas units, which is
+    // `(screen - pos) / scale` because drawing does `box * scale + pos`. The size stays in canvas units,
+    // and the hit test reads the same box, so the drawn button and the clickable one cannot drift.
+    const auto   SCALE  = MON->m_scale;
+    const auto   TILE   = tileBoxForIndex(0, size->value(), GAP_WIDTH, currentOuterInset(), true);
+    const double SIDE   = std::clamp(TILE.h * 0.22, 24.0, 56.0);          // canvas units
+    const double MARGIN = GAP_WIDTH * 2.0;                                 // canvas units
 
-    // The canvas is the *zoomed* grid, which is taller than the monitor; the button has to stay inside
-    // what is actually visible, so the clamp is against the monitor, not the canvas. Getting this wrong
-    // put the "+" off-screen with a 2x2 grid, which reads as a broken layout (reported 2026-09-22).
-    const double SIDE   = std::clamp(LAST.h * 0.22, 24.0, 56.0);
-    const double BOTTOM = std::max(CANVAS.y - SIDE - GAP_WIDTH * 2.0, MON->m_size.y - SIDE - 8.0);
-    return {std::max(0.0, (CANVAS.x - SIDE) / 2.0), std::min(BOTTOM, LAST.y + LAST.h + GAP_WIDTH * 2.0), SIDE, SIDE};
+    const double SCREEN_X = (MON->m_size.x - SIDE * SCALE) / 2.0;          // screen units
+    const double SCREEN_Y = MON->m_size.y - SIDE * SCALE - MARGIN * SCALE;
+
+    return {(SCREEN_X - pos->value().x) / SCALE, (SCREEN_Y - pos->value().y) / SCALE, SIDE, SIDE};
 }
 
 bool COverview::pointerOverAddButton() const {
