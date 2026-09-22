@@ -7,6 +7,7 @@
 #include "HyprexpoLogic.hpp"
 #include "HyprlandConfigCompat.hpp"
 #include "IOverviewSession.hpp"
+#include "Overview.hpp"
 #include "ScrollingDiagnostics.hpp"
 #include <hyprland/src/Compositor.hpp>
 #include <hyprland/src/config/shared/actions/ConfigActions.hpp>
@@ -457,6 +458,32 @@ static int luaDebugGeometry(lua_State* L) {
     return luaDispatchResult(L, "hyprexpo.debug", SDispatchResult{});
 }
 
+// Close a workspace's card from a script or a keybinding: the action the close affordance performs
+// (windows to the workspace the overview opened on, the persistent mark dropped, the grid re-derived).
+// Takes a workspace id; 0 or omitted means "the card the keyboard ring is on", so it can be bound as
+// "close the card I am looking at". Exists as a Lua twin because the raw dispatchers are unreachable
+// from a Lua config, and because a close verb is worth having on a key.
+static int luaCloseCard(lua_State* L) {
+    auto* const OV = dynamic_cast<COverview*>(activeOverview());
+    if (!OV)
+        return luaDispatchResult(L, "hyprexpo.close_card", SDispatchResult{.success = false, .error = "no grid overview is open"});
+
+    int64_t WANTED = 0;
+    if (lua_gettop(L) >= 1 && !lua_isnil(L, 1)) {
+        int parsed = -1;
+        if (!parseStrictInteger(luaIntegerArg(L, 1, "hyprexpo.close_card"), parsed))
+            return luaDispatchResult(L, "hyprexpo.close_card", SDispatchResult{.success = false, .error = "invalid workspace id"});
+        WANTED = parsed;
+    }
+
+    const int index = WANTED > 0 ? OV->closeCardIndexForID(WANTED) : OV->keyboardFocusedTile();
+
+    if (index < 0 || !OV->closeWorkspaceCard(index))
+        return luaDispatchResult(L, "hyprexpo.close_card", SDispatchResult{.success = false, .error = "that card cannot be closed (the current workspace, the add card, or no such tile)"});
+
+    return luaDispatchResult(L, "hyprexpo.close_card", SDispatchResult{});
+}
+
 static int luaKbConfirm(lua_State* L) {
     return luaDispatchResult(L, "hyprexpo.kb_confirm", onKbConfirmDispatcher(""));
 }
@@ -900,4 +927,5 @@ void registerHyprexpoDispatchers() {
     HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "kb_selecti", luaKbSelectIndex);
     HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "gesture", luaGesture);
     HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "debug", luaDebugGeometry);
+    HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "close_card", luaCloseCard);
 }

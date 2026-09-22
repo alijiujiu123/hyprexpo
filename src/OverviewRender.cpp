@@ -834,6 +834,21 @@ void COverview::fullRender() {
                 renderLabel(images[id].selectionLabelTex, images[id].selectionLabelSize, selectionTokens[tokenCounter], CHyprColor{(uint64_t)**PSELECTCOL}, 1.0f, tile,
                             std::string{*PSELECTPOS}, **PSELECTOX, **PSELECTOY, **PLABELSIZE);
 
+            // The close affordance (Mission Control's "x"): a card can be closed when it is neither the
+            // space you are on nor the trailing add card. Drawn with the same text renderer as the
+            // numbers — so it inherits the label font and its fontconfig hints instead of introducing a
+            // second text stack — in the card's top-left corner, at the exact box the hit test uses.
+            if (!isAddTile(image) && image.pWorkspace && image.pWorkspace->m_id != MON->activeWorkspaceID()) {
+                const auto BOX = closeButtonBox((int)id);
+                if (BOX.w > 0.0 && BOX.h > 0.0) {
+                    const bool HOT = (int)id == labelHoveredID || (int)id == kbFocusID;
+                    auto&      TEX = HOT ? images[id].closeTexHot : images[id].closeTexIdle;
+                    auto&      SZ  = HOT ? images[id].closeSizeHot : images[id].closeSizeIdle;
+                    renderLabel(TEX, SZ, "\u00d7", CHyprColor{(uint64_t)(HOT ? **PLCOLHOV : **PLCOLDEF)}, 1.0f, tile, std::string{"top-left"},
+                                (int)std::lround(BOX.x - tile.x), (int)std::lround(BOX.y - tile.y), (int)std::lround(labelFontSize * 0.7));
+                }
+            }
+
             ++tokenCounter;
         }
     }
