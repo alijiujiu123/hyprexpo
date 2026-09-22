@@ -7,6 +7,7 @@
 #include <hyprland/src/Compositor.hpp>
 #include <hyprland/src/debug/log/Logger.hpp>
 #include <hyprland/src/managers/input/InputManager.hpp>
+#include <hyprland/src/desktop/state/FocusState.hpp>
 #include <hyprland/src/output/Monitor.hpp>
 #include <hyprland/src/state/MonitorState.hpp>
 
@@ -45,7 +46,15 @@ void CExpoGesture::begin(const ITrackpadGesture::STrackpadGestureBegin& e) {
     m_monitor.reset();
     m_sessionGeneration = 0;
 
-    const auto monitor = State::monitorState()->query().vec(g_pInputManager->getMouseCoordsInternal()).run();
+    // The *focused* monitor, not the one under the pointer. The pointer's screen is what macOS does
+    // for Mission Control and what this did until 2026-09-22, but with two screens it means a
+    // three-finger swipe on the screen you are looking at does nothing whenever the pointer happens
+    // to rest on the other one (the overview opens over there, and the down-swipe that commits then
+    // has to happen over *that* overview). The bar and the keybindings address "the screen you are
+    // on" as the focused one, and with `input:follow_mouse = 1` that is the pointer's screen the
+    // moment it crosses — so this is both the common case and the consistent one (one address space
+    // per screen: omarchy-setup-kit, module `workspaces`).
+    const auto monitor = Desktop::focusState()->monitor();
     if (!monitor || !monitor->m_activeWorkspace)
         return;
 

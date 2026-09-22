@@ -3,6 +3,10 @@
 #include "OverviewAnimation.hpp"
 #include <any>
 #include <map>
+#include <algorithm>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include "HyprlandConfigCompat.hpp"
 #include "HyprexpoConfig.hpp"
 #include "OverviewInternal.hpp"
@@ -1142,6 +1146,169 @@ COverview::~COverview() {
     resetSubmapIfNeeded();
 }
 
+namespace {
+// The kit's persistent list (omarchy-setup-kit, module `workspaces`, and the reason this plugin
+// knows that file): one workspace id per line, at
+// `$XDG_STATE_HOME/omarchy/workspaces-persistent`. It exists because a workspace *rule* added at
+// runtime does not survive `hyprctl reload` — the Lua resolver re-applies the rule for every id in
+// the file on each config parse, so the file is what makes a persistent mark durable. The format is
+// the contract between the two repos; the resolver owns it, this plugin only appends.
+std::string persistentListPath() {
+    const char* STATEHOME = std::getenv("XDG_STATE_HOME");
+    if (STATEHOME && *STATEHOME)
+        return std::string{STATEHOME} + "/omarchy/workspaces-persistent";
+
+    const char* HOME = std::getenv("HOME");
+    if (!HOME || !*HOME)
+        return {};
+
+    return std::string{HOME} + "/.local/state/omarchy/workspaces-persistent";
+}
+
+std::vector<int64_t> readPersistentList() {
+    std::vector<int64_t> ids;
+    const auto           PATH = persistentListPath();
+    if (PATH.empty())
+        return ids;
+
+    std::ifstream file{PATH};
+    std::string   line;
+    while (std::getline(file, line)) {
+        try {
+            const auto ID = std::stoll(line);
+            if (ID > 0)
+                ids.push_back(ID);
+        } catch (...) {
+            // a hand-edited or half-written line is not worth failing an overview for
+        }
+    }
+
+    return ids;
+}
+
+void appendPersistentMark(int64_t id) {
+    const auto PATH = persistentListPath();
+    if (PATH.empty() || id <= 0)
+        return;
+
+    const auto IDS = readPersistentList();
+    if (std::ranges::find(IDS, id) != IDS.end())
+        return;
+
+    std::error_code ec;
+    std::filesystem::create_directories(std::filesystem::path{PATH}.parent_path(), ec);
+
+    std::ofstream file{PATH, std::ios::app};
+    if (file)
+        file << id << '\n';
+}
+}
+
+// The dynamic grid, in one place: the cards are this monitor's workspaces that occupy an ordinal,
+// plus one trailing add card (HyprexpoConfig::WORKSPACE_ADD_TILE). This is the compositor-side half of the
+// workspace-address model in omarchy-setup-kit's `workspaces` module — the same three rules:
+//
+//   * a workspace is a card when it has windows, is persistent, or is the one you are standing on
+//     (an empty workspace you are on must not vanish from its own screen's grid);
+//   * nothing here crosses monitors: the filter is `m_monitor`, so the grid can never draw the
+//     other screen's workspaces (the fixed grid did, because it walked consecutive ids);
+//   * the count is whatever exists — the shape follows it (computeDynamicGridShape), there is no
+//     4x3 and no `max_workspace` in this path.
+//
+// Called from the constructor and again after the add card creates a workspace, so a new card
+// appears without tearing the session down (mission control adds a space in place; so do we).
+void COverview::fillDynamicGrid() {
+    static auto* const* PFILLGAPS = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:fill_gaps")->getDataStaticPtr();
+    static auto* const* PMRUSORT  = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:mru_sort")->getDataStaticPtr();
+
+    const auto    MON                = pMonitor.lock();
+    const int64_t currentWorkspaceID = startedOn ? startedOn->m_id : (MON ? MON->activeWorkspaceID() : WORKSPACE_INVALID);
+    const auto    PERSISTENT         = readPersistentList();
+
+    std::vector<int64_t> visibleWorkspaceIDs;
+    for (const auto& workspace : State::workspaceState()->workspacesCopy()) {
+        if (!workspace || workspace->inert() || workspace->m_isSpecialWorkspace || workspace->m_monitor != MON)
+            continue;
+
+        const bool OCCUPIED   = workspace->getWindowCount() > 0;
+        const bool PERSISTENT_WS = workspace->isPersistent() || std::ranges::find(PERSISTENT, workspace->m_id) != PERSISTENT.end();
+        const bool CURRENT    = workspace->m_id == currentWorkspaceID;
+        if (!OCCUPIED && !PERSISTENT_WS && !CURRENT)
+            continue;
+
+        visibleWorkspaceIDs.push_back(workspace->m_id);
+    }
+    std::ranges::sort(visibleWorkspaceIDs);
+
+    // fill_gaps stays available for a numbering with holes, but it is only coherent *inside* a
+    // screen: it fills the numeric gaps between this monitor's lowest and highest id, and an id in
+    // such a gap can belong to the other screen's rule. Off by default, for that reason.
+    const auto EXPANDED = Hyprexpo::expandDynamicWorkspaceIDs(visibleWorkspaceIDs, **PFILLGAPS, HyprexpoConfig::DYNAMIC_GRID_MAX_TILES);
+    if (EXPANDED)
+        visibleWorkspaceIDs = *EXPANDED;
+    else {
+        visibleWorkspaceIDs = *Hyprexpo::expandDynamicWorkspaceIDs(visibleWorkspaceIDs, false, HyprexpoConfig::DYNAMIC_GRID_MAX_TILES);
+        Log::logger->log(Log::ERR, "[hyprexpo] fill_gaps range exceeds {} tiles; using sparse workspace IDs", HyprexpoConfig::DYNAMIC_GRID_MAX_TILES);
+    }
+
+    if (**PMRUSORT) {
+        const auto it = std::find(visibleWorkspaceIDs.begin(), visibleWorkspaceIDs.end(), currentWorkspaceID);
+        if (it != visibleWorkspaceIDs.end() && it != visibleWorkspaceIDs.begin()) {
+            const auto CURRENT = *it;
+            visibleWorkspaceIDs.erase(it);
+            visibleWorkspaceIDs.insert(visibleWorkspaceIDs.begin(), CURRENT);
+        }
+    }
+
+    const size_t CARDS = visibleWorkspaceIDs.size() + 1;
+
+    gridShape = Hyprexpo::computeDynamicGridShape((int)CARDS);
+    images.resize(CARDS);
+    for (size_t i = 0; i < visibleWorkspaceIDs.size(); ++i)
+        images[i].workspaceID = visibleWorkspaceIDs[i];
+
+    // The add card is always the trailing slot (mission control's "+" sits after the spaces, and
+    // when a space is added it moves one to the right rather than the new card appearing elsewhere).
+    images[CARDS - 1].workspaceID = HyprexpoConfig::WORKSPACE_ADD_TILE;
+
+    lastTileCapture.resize(CARDS, std::chrono::steady_clock::now());
+}
+
+int64_t COverview::createAddTileWorkspace() {
+    const auto MON = pMonitor.lock();
+    if (!MON)
+        return WORKSPACE_INVALID;
+
+    // Above this monitor's highest id, so the new card lands last instead of shifting every
+    // ordinal up: the kit measured that the globally-smallest id makes a new workspace on a second
+    // screen ordinal 1 (workspaces.new() on HDMI-A-1 got id 2, sorting before 4,5,6,10..16).
+    std::vector<int64_t> used;
+    int64_t              highest = 0;
+    for (const auto& workspace : State::workspaceState()->workspacesCopy()) {
+        if (!workspace)
+            continue;
+        used.push_back(workspace->m_id);
+        if (workspace->m_monitor == MON && workspace->m_id > highest)
+            highest = workspace->m_id;
+    }
+
+    int64_t id = highest + 1;
+    while (std::ranges::find(used, id) != used.end())
+        ++id;
+
+    const auto WS = State::workspaceState()->create(id, MON->m_id, std::to_string(id));
+    if (!WS)
+        return WORKSPACE_INVALID;
+
+    // Persistent now — the card exists so the slot survives being left empty, which is the whole
+    // point of it — and recorded for the next config parse, which is what makes the mark survive a
+    // reload (see the file header above).
+    WS->setPersistent(true);
+    appendPersistentMark(id);
+
+    return id;
+}
+
 COverview::COverview(PHLWORKSPACE startedOn_, PHLMONITOR monitor_, bool swipe_, uint64_t sessionGeneration) : startedOn(startedOn_), m_sessionGeneration(sessionGeneration), swipe(swipe_) {
     const auto PMONITOR = monitor_;
     pMonitor            = PMONITOR;
@@ -1281,44 +1448,8 @@ COverview::COverview(PHLWORKSPACE startedOn_, PHLMONITOR monitor_, bool swipe_, 
         }
     }
 
-    if (dynamicGrid) {
-        std::vector<int64_t> visibleWorkspaceIDs;
-        const auto MON = pMonitor.lock();
-        const int64_t currentWorkspaceID = startedOn ? startedOn->m_id : (MON ? MON->activeWorkspaceID() : WORKSPACE_INVALID);
-
-        for (const auto& workspace : State::workspaceState()->workspacesCopy()) {
-            if (!workspace || workspace->m_isSpecialWorkspace || workspace->m_monitor != MON || workspace->getWindowCount() <= 0)
-                continue;
-
-            visibleWorkspaceIDs.push_back(workspace->m_id);
-        }
-
-        if (visibleWorkspaceIDs.empty() && currentWorkspaceID != WORKSPACE_INVALID)
-            visibleWorkspaceIDs.push_back(currentWorkspaceID);
-
-        const auto expandedWorkspaceIDs =
-            Hyprexpo::expandDynamicWorkspaceIDs(visibleWorkspaceIDs, **PFILLGAPS, HyprexpoConfig::DYNAMIC_GRID_MAX_TILES);
-        if (expandedWorkspaceIDs)
-            visibleWorkspaceIDs = *expandedWorkspaceIDs;
-        else {
-            visibleWorkspaceIDs = *Hyprexpo::expandDynamicWorkspaceIDs(visibleWorkspaceIDs, false, HyprexpoConfig::DYNAMIC_GRID_MAX_TILES);
-            Log::logger->log(Log::ERR, "[hyprexpo] fill_gaps range exceeds {} tiles; using sparse workspace IDs", HyprexpoConfig::DYNAMIC_GRID_MAX_TILES);
-        }
-
-        if (**PMRUSORT) {
-            const auto it = std::find(visibleWorkspaceIDs.begin(), visibleWorkspaceIDs.end(), currentWorkspaceID);
-            if (it != visibleWorkspaceIDs.end() && it != visibleWorkspaceIDs.begin()) {
-                const auto current = *it;
-                visibleWorkspaceIDs.erase(it);
-                visibleWorkspaceIDs.insert(visibleWorkspaceIDs.begin(), current);
-            }
-        }
-
-        gridShape = Hyprexpo::computeDynamicGridShape((int)visibleWorkspaceIDs.size());
-        images.resize(visibleWorkspaceIDs.size());
-        for (size_t i = 0; i < visibleWorkspaceIDs.size(); ++i)
-            images[i].workspaceID = visibleWorkspaceIDs[i];
-    }
+    if (dynamicGrid)
+        fillDynamicGrid();
 
     Render::GL::g_pHyprOpenGL->makeEGLCurrent();
 
@@ -1336,6 +1467,15 @@ COverview::COverview(PHLWORKSPACE startedOn_, PHLMONITOR monitor_, bool swipe_, 
 
     for (size_t i = 0; i < images.size(); ++i) {
         COverview::SWorkspaceImage& image = images[i];
+
+        if (isAddTile(image)) {
+            // The add card has no workspace behind it: nothing to capture, no surface feedback to
+            // block, and it must never become `currentid` (that is the opened workspace). Its box is
+            // still computed, because the geometry helpers index by tile.
+            image.pWorkspace = nullptr;
+            image.box        = tileBoxForIndex((int)i, pMonitor->m_size, GAP_WIDTH, 0.0, true);
+            continue;
+        }
 
         PHLWORKSPACE PWORKSPACE;
         for (const auto& w : State::workspaceState()->workspacesCopy()) {

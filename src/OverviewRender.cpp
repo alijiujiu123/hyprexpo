@@ -62,6 +62,14 @@ void COverview::redrawID(int id, bool forcelowres) {
 
     auto& image = images[id];
 
+    if (isAddTile(image)) {
+        // Nothing behind the add card, so there is no preview to (re)capture. Returning here keeps
+        // every caller safe: the dirty-tile path, the damage refresh, and the refresh that runs
+        // after the add card creates a workspace all route through this function.
+        blockOverviewRendering = false;
+        return;
+    }
+
     PHLWORKSPACE PWORKSPACE;
     if (image.pWorkspace) {
         PWORKSPACE = image.pWorkspace;
@@ -136,6 +144,41 @@ void COverview::onDamageReported() {
 void COverview::close(bool switchToSelection) {
     if (closing)
         return;
+
+    // The add card is not a workspace commit. Committing it creates a persistent workspace on this
+    // monitor and keeps the overview open — mission control's "+" adds the space in place, the new
+    // card appears where the "+" was, and the "+" moves one slot right. That is also why this runs
+    // before `m_closeCommitted`: nothing about this interaction closes anything.
+    if (switchToSelection && closeOnID != -1 && closeOnID < (int)images.size() && isAddTile(images[closeOnID])) {
+        const int OLD_ADD_TILE = (int)images.size() - 1;
+
+        const int64_t NEW = createAddTileWorkspace();
+        if (NEW == WORKSPACE_INVALID) {
+            Log::logger->log(Log::ERR, "[hyprexpo] the add card could not create a workspace");
+            return;
+        }
+
+        fillDynamicGrid();
+
+        for (size_t i = 0; i < images.size(); ++i) {
+            if (images[i].workspaceID == NEW) {
+                redrawID((int)i);
+                break;
+            }
+        }
+
+        // The grid moved under the pointer — every index after the new card shifted — so the marks
+        // the hit test left a moment ago now name a different slot: drop them and let the next
+        // pointer move (or key press) set them again. The keyboard ring, if it sat on the add card,
+        // follows it to its new place rather than jumping to a workspace the user never picked.
+        hoveredID = -1;
+        closeOnID = -1;
+        if (kbFocusID == OLD_ADD_TILE)
+            kbFocusID = (int)images.size() - 1;
+
+        damage();
+        return;
+    }
 
     // The teardown animation is now committed; lock out further swipe input so a
     // re-grabbed gesture can't rewind it (issue #57 follow-up: close replay).
@@ -469,7 +512,18 @@ void COverview::fullRender() {
             }
 
             CRegion damage{0, 0, INT16_MAX, INT16_MAX};
-            Render::GL::g_pHyprOpenGL->renderTextureInternal(images[id].fb->getTexture(), texbox, {.damage = &damage, .a = alpha, .round = tileRound, .roundingPower = ROUND_PWR});
+
+            if (isAddTile(images[id])) {
+                // The add card (HyprexpoConfig::WORKSPACE_ADD_TILE) is a slot, not a workspace, so there is no
+                // preview to draw. It reads as the quietest surface in the grid — a faint translucent
+                // wash with the same rounding and the same hover/focus borders as a workspace card —
+                // so it is unmistakably "an empty place you can add", never a window. Its glyph is
+                // rendered through the label pipeline below, which is also what makes hover and
+                // keyboard focus light it up exactly like every other card.
+                Render::GL::g_pHyprOpenGL->renderRect(texbox, CHyprColor{1.0f, 1.0f, 1.0f, 0.06f * alpha}, {.round = tileRound, .roundingPower = ROUND_PWR});
+            } else {
+                Render::GL::g_pHyprOpenGL->renderTextureInternal(images[id].fb->getTexture(), texbox, {.damage = &damage, .a = alpha, .round = tileRound, .roundingPower = ROUND_PWR});
+            }
 
         }
     }
@@ -694,7 +748,11 @@ void COverview::fullRender() {
     if (!std::string{*PSELECTMAP}.empty())
         selectionTokens = splitCommaList(std::string{*PSELECTMAP});
 
-    if (!closing && (**PLABELEN || **PSELECTEN || showWorkspaceNumbers)) {
+    // The add card's glyph travels through this same block, so it has to keep running even when
+    // labels are switched off: the "+" is the card's content, not a label. Everything else about it
+    // — the state colours, the hover/focus scale, the anchor — is then whatever the labels use.
+    const bool hasAddTile = std::ranges::any_of(images, [](const auto& image) { return isAddTile(image); });
+    if (!closing && (**PLABELEN || **PSELECTEN || showWorkspaceNumbers || hasAddTile)) {
         const int labelHoveredID = hoveredID;
         const bool modernPositionSet = CompatHyprlandAPI::configValueSetByUser("plugin:hyprexpo:label_position");
         const bool legacyPositionSet = CompatHyprlandAPI::configValueSetByUser("plugin:hyprexpo:label_pos");
@@ -731,7 +789,13 @@ void COverview::fullRender() {
             if (Hyprexpo::shouldShowWorkspaceLabel(labelEnabled, labelShow, (int)id == labelHoveredID, (int)id == kbFocusID, (int)id == openedID)) {
                 std::string label;
                 const std::string mode = showWorkspaceNumbers ? std::string{"id"} : std::string{*PLABELMODE};
-                if (dynamicGrid && showWorkspaceNames) {
+                if (isAddTile(images[id])) {
+                    // The trailing slot's content: a plus, in the label colour of whatever state the
+                    // card is in (so hover and keyboard focus light it up exactly like a workspace
+                    // card's number). Two and a half times the label size, because the glyph is the
+                    // whole card, not an annotation on one.
+                    label = "+";
+                } else if (dynamicGrid && showWorkspaceNames) {
                     label = resolveWorkspaceName(id);
                 } else if (mode == "token") {
                     if (tokenCounter < (int)labelTokens.size() && !labelTokens[tokenCounter].empty())
@@ -739,7 +803,10 @@ void COverview::fullRender() {
                     else
                         label = fallbackTokenForVisibleIndex(tokenCounter);
                 } else if (mode == "index") {
-                    label = std::to_string(tokenCounter + 1);
+                    // The screen-ordinal convention the whole kit uses: 1..9 and then `0` for the
+                    // tenth, the way the digits are laid out on a keyboard.
+                    const int ORDINAL = tokenCounter + 1;
+                    label             = ORDINAL == 10 ? std::string{"0"} : std::to_string(ORDINAL);
                 } else {
                     label = std::to_string(images[id].workspaceID);
                 }
@@ -759,7 +826,7 @@ void COverview::fullRender() {
                     const uint64_t COL = LIVE ? 0xFFFF2222 : (uint64_t)(NUM ? **PWSNUMCOL : st == 1 ? **PLCOLHOV : st == 2 ? **PLCOLFOC : st == 3 ? **PLCOLCUR : **PLCOLDEF);
                     const float  SCALE = (!NUM && st == 1) ? **PLSCALEH : (!NUM && st == 2) ? **PLSCALEF : 1.0f;
 
-                    renderLabel(TEX, SZ, label, CHyprColor{COL}, SCALE, tile, labelAnchor, **PLABELOX, **PLABELOY, labelFontSize);
+                    renderLabel(TEX, SZ, label, CHyprColor{COL}, SCALE, tile, labelAnchor, **PLABELOX, **PLABELOY, isAddTile(images[id]) ? (int)std::lround(labelFontSize * 2.5) : labelFontSize);
                 }
             }
 

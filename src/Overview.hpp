@@ -5,6 +5,7 @@
 #include "globals.hpp"
 #include "IOverviewSession.hpp"
 #include "HyprexpoLogic.hpp"
+#include "HyprexpoConfig.hpp"
 #include <hyprland/src/desktop/DesktopTypes.hpp>
 #include <hyprland/src/render/Framebuffer.hpp>
 #include <hyprland/src/render/Texture.hpp>
@@ -192,6 +193,21 @@ class COverview final : public IOverviewSession {
     std::chrono::steady_clock::time_point     dirtyLogTime{};
 
     std::vector<SWorkspaceImage> images;
+
+    // Re-derives the dynamic grid — which workspaces of this monitor are cards, plus the trailing
+    // add card — and sizes `images` (and the per-tile bookkeeping) to match. Called from the
+    // constructor and again after the add card creates a workspace, so the new card appears
+    // without tearing the session down.
+    void                         fillDynamicGrid();
+    // True for the trailing "create a workspace" slot (see HyprexpoConfig::WORKSPACE_ADD_TILE). It has no
+    // workspace behind it: the capture path must skip it and the label logic draws a "+" instead.
+    static bool                  isAddTile(const SWorkspaceImage& image) { return image.workspaceID == HyprexpoConfig::WORKSPACE_ADD_TILE; }
+    static bool                  isAddTile(int64_t workspaceID) { return workspaceID == HyprexpoConfig::WORKSPACE_ADD_TILE; }
+    // The add card's commit: create a persistent workspace on this monitor above its highest id,
+    // mark it persistent in the compositor, and record the id in the kit's persistent list so the
+    // mark survives a config reload (a runtime rule is not what this plugin writes; the list is
+    // the contract — see the omarchy-setup-kit `workspaces` module).
+    int64_t                      createAddTileWorkspace();
 
     PHLWORKSPACE                 startedOn;
 

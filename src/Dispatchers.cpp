@@ -443,6 +443,20 @@ static int luaKbFocus(lua_State* L) {
     return luaDispatchResult(L, "hyprexpo.kb_focus", onKbFocusDispatcher(luaStringArg(L, 1, "hyprexpo.kb_focus")));
 }
 
+// Read-only twin of the sandbox's geometry line (`simswipe` writes the same string to
+// $XDG_RUNTIME_DIR/hyprexpo-sim.log). It exists because on a machine whose config is Lua the raw
+// `hyprexpo:simswipe` dispatcher is unreachable — a *dispatcher* needs the hyprlang parser, which
+// the Lua config does not use — so without this there is no way to ask "which tile is the keyboard
+// ring on, is the session still open, what does the grid cost" from a script. It changes nothing.
+static int luaDebugGeometry(lua_State* L) {
+    auto* const OV = activeOverview();
+    if (!OV)
+        return luaDispatchResult(L, "hyprexpo.debug", SDispatchResult{.success = false, .error = "overview is not open"});
+
+    Log::logger->log(Log::INFO, "HYPREXPO_GEOMETRY {}", OV->debugGeometry());
+    return luaDispatchResult(L, "hyprexpo.debug", SDispatchResult{});
+}
+
 static int luaKbConfirm(lua_State* L) {
     return luaDispatchResult(L, "hyprexpo.kb_confirm", onKbConfirmDispatcher(""));
 }
@@ -885,4 +899,5 @@ void registerHyprexpoDispatchers() {
     HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "kb_select", luaKbSelectToken);
     HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "kb_selecti", luaKbSelectIndex);
     HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "gesture", luaGesture);
+    HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "debug", luaDebugGeometry);
 }

@@ -82,7 +82,12 @@ bool COverview::selectVisibleIndex(size_t index) {
 
     size_t visible = 0;
     for (size_t i = 0; i < images.size(); ++i) {
-        if (images[i].workspaceID == WORKSPACE_INVALID)
+        if (!isTileValid((int)i))
+            continue;
+
+        // The trailing add card is not part of the numbering: `kb_selectn 3` is the third
+        // *workspace* of this screen, exactly like the bar's third number and `SUPER + 3`.
+        if (isAddTile(images[i]))
             continue;
 
         if (visible == index) {
@@ -650,7 +655,14 @@ bool COverview::onKbSelectNumber(int num) {
     if (num == 0)
         num = 10;
 
-    return selectWorkspaceByID(num);
+    // The number keys mean the *ordinal on this screen* (1..9, 0 = tenth), the same thing they mean
+    // for SUPER + digit, the wheel and the bar — not a workspace id, which is shared between monitors
+    // and says nothing about position. selectVisibleIndex already skips the trailing add card, so the
+    // numbering here is exactly the numbering the labels draw.
+    if (num <= 0)
+        return false;
+
+    return selectVisibleIndex((size_t)(num - 1));
 }
 
 bool COverview::onKbSelectToken(int visibleIdx) {
