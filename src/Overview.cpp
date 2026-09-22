@@ -723,8 +723,15 @@ IOverviewSession* createOverview(const PHLMONITOR& monitor, bool swipe) {
     if (!monitor || !monitor->m_activeWorkspace)
         return nullptr;
 
-    if (overviewForMonitor(monitor))
-        return nullptr;
+    if (auto* const EXISTING = overviewForMonitor(monitor)) {
+        // A session that has already committed its close is on its way out, but until its animation ends it
+        // still owns the monitor, and refusing here means a gesture in that window does nothing at all.
+        // Reap it and carry on rather than leaving a dead session in charge of the screen.
+        if (!EXISTING->closeCommitted())
+            return nullptr;
+
+        destroyOverview(EXISTING);
+    }
 
     auto session = createOverviewSession(monitor->m_activeWorkspace, monitor, swipe);
     if (!session)

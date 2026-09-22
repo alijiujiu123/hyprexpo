@@ -46,6 +46,7 @@ static SP<Config::Values::CStringValue> g_pNumberKeyModeConfig;
 static SDispatchResult onExpoDispatcher(std::string arg);
 static SDispatchResult onKbFocusDispatcher(std::string arg);
 static SDispatchResult onKbConfirmDispatcher(std::string arg);
+static SDispatchResult onSimSwipeDispatcher(std::string arg);
 static SDispatchResult onKbSelectNumberDispatcher(std::string arg);
 static SDispatchResult onKbSelectTokenDispatcher(std::string arg);
 static SDispatchResult onKbSelectIndexDispatcher(std::string arg);
@@ -482,6 +483,32 @@ static int luaCloseCard(lua_State* L) {
         return luaDispatchResult(L, "hyprexpo.close_card", SDispatchResult{.success = false, .error = "that card cannot be closed (the current workspace, the add card, or no such tile)"});
 
     return luaDispatchResult(L, "hyprexpo.close_card", SDispatchResult{});
+}
+
+// Read-only session listing: what is registered in `g_overviews` right now, which kind, and whether it
+// has already committed a close. A session that finished but stayed registered blocks every future open
+// on its monitor (`createOverview` refuses when one exists), which reads as "the gesture does nothing" —
+// so this is the first thing to ask when the overview does not appear.
+static int luaSessions(lua_State* L) {
+    std::string line = std::format("{} session(s)", g_overviews.size());
+    for (const auto& session : g_overviews) {
+        if (!session)
+            continue;
+        const auto MON  = session->monitor();
+        const auto* GRID = dynamic_cast<const COverview*>(session.get());
+        line += std::format(" | {} {} gen={} closing_committed={} swiping={}", MON ? MON->m_name : std::string{"<no monitor>"}, GRID ? "grid" : "scrolling",
+                            session->sessionGeneration(), session->closeCommitted() ? 1 : 0, session->isSwiping() ? 1 : 0);
+    }
+    Log::logger->log(Log::INFO, "HYPREXPO_SESSIONS {}", line);
+    return luaDispatchResult(L, "hyprexpo.sessions", SDispatchResult{});
+}
+
+// The sandbox swipe driver, reachable from a Lua config: `simswipe begin|update [dy] [count]|end` drives
+// the real trackpad-gesture path (CTrackpadGestures -> CExpoGesture) with synthetic events, which is the
+// only way to exercise a *gesture* from a script on a machine whose config is Lua (the raw dispatcher
+// needs the hyprlang parser). Sandbox/diagnostic only.
+static int luaSimSwipe(lua_State* L) {
+    return luaDispatchResult(L, "hyprexpo.simswipe", onSimSwipeDispatcher(luaStringArg(L, 1, "hyprexpo.simswipe")));
 }
 
 static int luaKbConfirm(lua_State* L) {
@@ -989,4 +1016,6 @@ void registerHyprexpoDispatchers() {
     HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "gesture", luaGesture);
     HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "debug", luaDebugGeometry);
     HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "close_card", luaCloseCard);
+    HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "sessions", luaSessions);
+    HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "simswipe", luaSimSwipe);
 }

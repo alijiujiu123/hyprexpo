@@ -46,15 +46,32 @@ void CExpoGesture::begin(const ITrackpadGesture::STrackpadGestureBegin& e) {
     m_monitor.reset();
     m_sessionGeneration = 0;
 
-    // The *focused* monitor, not the one under the pointer. The pointer's screen is what macOS does
-    // for Mission Control and what this did until 2026-09-22, but with two screens it means a
-    // three-finger swipe on the screen you are looking at does nothing whenever the pointer happens
-    // to rest on the other one (the overview opens over there, and the down-swipe that commits then
-    // has to happen over *that* overview). The bar and the keybindings address "the screen you are
-    // on" as the focused one, and with `input:follow_mouse = 1` that is the pointer's screen the
-    // moment it crosses — so this is both the common case and the consistent one (one address space
-    // per screen: omarchy-setup-kit, module `workspaces`).
-    const auto monitor = Desktop::focusState()->monitor();
+    // Which screen the overview belongs to: the screen of the window the user is working in.
+    //
+    // Neither of the obvious answers survives contact with this machine. The *pointer's* screen is what
+    // macOS does and what this did until 2026-09-22, but a pointer resting on the other screen opens the
+    // overview over there, which reads as "the gesture does nothing at all". The *monitor* focus is worse:
+    // with `input:follow_mouse = 1` it tracks the pointer, so it is the same answer, and it goes stale
+    // when the pointer is moved without a focus re-evaluation (measured: a warp to HDMI left the focused
+    // monitor on eDP-1, and the overview opened — invisibly — on the laptop panel).
+    //
+    // The focused *window* is where the user's attention actually is, and its monitor cannot go stale the
+    // way a focus flag can. The pointer is the fallback (no focused window), the focused monitor the last
+    // resort.
+    PHLMONITOR monitor;
+    if (const auto FOCUSED_WINDOW = Desktop::focusState()->window(); FOCUSED_WINDOW) {
+        // `m_monitor` is a weak reference: it has to be locked, and a window whose monitor is gone simply
+        // falls through to the pointer below.
+        if (const auto WINDOW_MONITOR = FOCUSED_WINDOW->m_monitor.lock())
+            monitor = WINDOW_MONITOR;
+    }
+
+    if (!monitor)
+        monitor = State::monitorState()->query().vec(g_pInputManager->getMouseCoordsInternal()).run();
+
+    if (!monitor)
+        monitor = Desktop::focusState()->monitor();
+
     if (!monitor || !monitor->m_activeWorkspace)
         return;
 
