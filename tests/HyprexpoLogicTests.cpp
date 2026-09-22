@@ -789,6 +789,18 @@ int main() {
     expect(trimString("  DP-1 first 1 \t") == "DP-1 first 1", "trimString removes surrounding whitespace");
     expect(splitCommaList("a, b,,c").size() == 4, "splitCommaList preserves empty entries");
 
+    // The rubber band at the ends of an overview swipe: inside the ends it is the identity (the gesture is
+    // untouched), past them it compresses the overshoot instead of clamping it flat, and it never passes
+    // `share` of the travel no matter how hard the pull.
+    expect(near(Momentum::resistPastEnds(0.0), 0.0) && near(Momentum::resistPastEnds(0.5), 0.5) && near(Momentum::resistPastEnds(1.0), 1.0),
+           "inside the ends the rubber band is the identity");
+    expect(Momentum::resistPastEnds(1.5) > 1.0 && Momentum::resistPastEnds(1.5) < 1.5, "past the far end the overshoot is compressed");
+    expect(Momentum::resistPastEnds(-0.5) < 0.0 && Momentum::resistPastEnds(-0.5) > -0.5, "past the near end too, and on the other side");
+    expect(Momentum::resistPastEnds(1.2) > Momentum::resistPastEnds(1.1), "more pull still moves it, just less");
+    expect(near(Momentum::resistPastEnds(1.0 + 1e6), 1.25, 0.001) && near(Momentum::resistPastEnds(-1e6), -0.25, 0.001),
+           "an arbitrarily hard pull approaches the share, it does not pass it");
+    expect(near(Momentum::resistPastEnds(1.5), 1.0 + (0.5 * 0.25) / (0.25 + 0.5), 0.001), "a half-travel overshoot compresses to a sixth of it");
+
     expect(clampGridColumns(-1) == 1, "columns clamp lower bound");
     expect(clampGridColumns(3) == 3, "columns keep valid value");
     expect(clampGridColumns(99) == 7, "columns clamp upper bound");

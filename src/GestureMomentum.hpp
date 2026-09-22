@@ -14,6 +14,29 @@
 // position is what the overview commit threshold is evaluated against.
 namespace Hyprexpo::Momentum {
 
+// The ends of a swipe, with give instead of a wall.
+//
+// The gesture's travel that means "fully open" is `plugin:hyprexpo:gesture_distance`; past it the
+// fraction used to be clamped flat, so pulling further froze the grid — nothing moved, which reads as
+// the gesture having stopped rather than as having arrived. This is the same curve the machine already
+// uses at a workspace edge (`hypr-edgebounce`'s `RubberBand.hpp`: `t*c*A/(A + c*t)`, progressive
+// resistance with an asymptote), so a pull past an end feels like the same material as the bounce.
+//
+// `fraction` is the raw travel divided by that distance: 0 at one end, 1 at the other, and anything
+// outside that past it. `share` is how much of the travel the asymptote is worth (a quarter is plenty
+// for a grid that is already fully open), `gain` how quickly it gets there.
+inline double resistPastEnds(double fraction, double share = 0.25, double gain = 1.0) {
+    const double OVER = fraction < 0.0 ? -fraction : (fraction > 1.0 ? fraction - 1.0 : 0.0);
+
+    if (OVER == 0.0)
+        return fraction;
+
+    const double COMPRESSED = (OVER * gain * share) / (share + (gain * OVER));
+
+    return fraction < 0.0 ? -COMPRESSED : 1.0 + COMPRESSED;
+}
+
+
 // Exponential velocity weighting: `tau` is the time constant, so the estimate tracks the
 // last ~tau seconds of motion rather than the whole gesture. Elapsed-time weighting keeps
 // it event-rate independent.

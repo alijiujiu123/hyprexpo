@@ -2,6 +2,7 @@
 #define HyprlandAPI CompatHyprlandAPI
 #include "OverviewAnimation.hpp"
 #include "OverviewInternal.hpp"
+#include "GestureMomentum.hpp"
 #include "HyprexpoLogic.hpp"
 #include <hyprland/src/Compositor.hpp>
 #include <hyprland/src/config/ConfigValue.hpp>
@@ -721,7 +722,9 @@ void COverview::onSwipeUpdate(double delta) {
 
     swipeClosing = closing;
 
-    const float         PERC               = closing ? std::clamp(delta / distance, 0.0, 1.0) : 1.0 - std::clamp(delta / distance, 0.0, 1.0);
+    // `resistPastEnds` rather than a flat `std::clamp`: past either end the grid keeps moving, less and
+    // less, instead of freezing (see the helper). Inside the ends the two are identical.
+    const float         PERC               = closing ? static_cast<float>(Hyprexpo::Momentum::resistPastEnds(delta / distance)) : static_cast<float>(1.0 - Hyprexpo::Momentum::resistPastEnds(delta / distance));
     const auto          WORKSPACE_FOCUS_ID = closing && closeOnID != -1 ? closeOnID : openedID;
 
     const auto          SIZEMAX = zoomSizeForCurrentGrid(MON->m_size);
