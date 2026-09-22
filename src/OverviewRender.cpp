@@ -785,6 +785,30 @@ void COverview::fullRender() {
         }
     }
 
+    // The "+" under the cards: one centred box, its own hover state. Drawn with the same text renderer
+    // as the card labels so the glyph matches them, and with the cards' rounding so it belongs to the
+    // same family of shapes. This is the second way to add a workspace; the bar's trailing "+" is the
+    // first, and both create one and go there.
+    if (!closing && !images.empty()) {
+        const auto ADDBOX = addButtonBox();
+        if (ADDBOX.w > 0.0 && ADDBOX.h > 0.0) {
+            static auto* const* PLABELSIZE2 = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:label_font_size")->getDataStaticPtr();
+
+            CBox box{ADDBOX.x, ADDBOX.y, ADDBOX.w, ADDBOX.h};
+            box.scale(MON->m_scale).translate(pos->value());
+            box.round();
+
+            const bool HOT   = pointerOverAddButton();
+            const int  ROUND = std::min((int)std::lround(box.h / 2.0), CURRENT_ROUND_SCALED);
+            Render::GL::g_pHyprOpenGL->renderRect(box, CHyprColor{1.0f, 1.0f, 1.0f, HOT ? 0.18f : 0.09f}, {.round = ROUND, .roundingPower = ROUND_PWR});
+
+            auto& TEX = HOT ? addTexHot : addTexIdle;
+            auto& SZ  = HOT ? addSizeHot : addSizeIdle;
+            const int FONT = std::max(12, (int)std::lround((double)**PLABELSIZE2 * 1.6));
+            renderLabel(TEX, SZ, "+", CHyprColor{HOT ? 0xFFFFFFFFu : 0xCCFFFFFFu}, 1.0f, box, std::string{"center"}, 0, 0, FONT);
+        }
+    }
+
     const int RND_CUR = CURRENT_ROUND_SCALED;
     const int RND_FOC = FOCUS_ROUND_SCALED;
     const int RND_HOV = HOVER_ROUND_SCALED;

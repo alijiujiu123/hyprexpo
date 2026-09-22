@@ -194,11 +194,25 @@ class COverview final : public IOverviewSession {
 
     std::vector<SWorkspaceImage> images;
 
+    // The "+" under the cards (the second way to add a workspace, the bar's trailing one being the
+    // first): a centred box below the grid, its own texture pair because it is not a grid cell.
+    SP<Render::ITexture>         addTexIdle;
+    SP<Render::ITexture>         addTexHot;
+    Vector2D                     addSizeIdle = {0, 0};
+    Vector2D                     addSizeHot  = {0, 0};
+
     // Re-derives the dynamic grid — which workspaces of this monitor are cards, plus the trailing
     // add card — and sizes `images` (and the per-tile bookkeeping) to match. Called from the
     // constructor and again after the add card creates a workspace, so the new card appears
     // without tearing the session down.
     void                         fillDynamicGrid();
+    // The box of the "+" under the grid, in the same monitor-local logical space the tiles use, and
+    // whether the pointer is inside it. Shared by the renderer and the hit test so they cannot drift.
+    CBox                         addButtonBox() const;
+    bool                         pointerOverAddButton() const;
+    // The click: create a workspace on this screen and go there (then the overview closes, because the
+    // user has moved on). Returns true when it acted.
+    bool                         handleAddButtonClick();
     // True for the trailing "create a workspace" slot (see HyprexpoConfig::WORKSPACE_ADD_TILE). It has no
     // workspace behind it: the capture path must skip it and the label logic draws a "+" instead.
     static bool                  isAddTile(const SWorkspaceImage& image) { return image.workspaceID == HyprexpoConfig::WORKSPACE_ADD_TILE; }
