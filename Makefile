@@ -9,9 +9,11 @@ endif
 # The VERSION file is the single source of truth (see scripts/version.sh).
 # VERSION_BASE is the release version used for tagging/checks; VERSION is what
 # gets baked into the binary (adds a -dev marker for non-release builds).
-# Where `make publish` pushes: our fork, never upstream (the kit's rule — no upstream work for
-# this fork; the guard in the target below enforces it if the value is changed).
-PUBLISH_REMOTE ?= fork
+# Where `make publish` pushes: our own repo (alijiujiu123/hyprexpo), never upstream — the kit's rule
+# is that no work for this fork goes to sandwichfarm. The remote names now follow the usual convention
+# (`origin` = ours, `upstream` = the one we forked from); the guard in the target below checks the URL
+# as well, so pointing this at the wrong remote is refused rather than attempted.
+PUBLISH_REMOTE ?= origin
 VERSION_FILE := VERSION
 VERSION_BASE := $(shell sh scripts/version.sh --base)
 VERSION      := $(shell sh scripts/version.sh)
@@ -159,7 +161,7 @@ publish:
 	./scripts/check-commit-pins.sh "$$v"; \
 	remote='$(PUBLISH_REMOTE)'; \
 	url=$$(git remote get-url "$$remote" 2>/dev/null) || { \
-		echo "error: no '$$remote' remote; add our fork (git remote add fork https://github.com/alijiujiu123/hyprexpo.git) or set PUBLISH_REMOTE="; exit 1; }; \
+		echo "error: no '$$remote' remote; add ours (git remote add origin https://github.com/alijiujiu123/hyprexpo.git) or set PUBLISH_REMOTE="; exit 1; }; \
 	case "$$url" in \
 		*sandwichfarm/hyprexpo*) \
 			echo "error: '$$remote' points at upstream ($$url) — this fork publishes to alijiujiu123/hyprexpo and never to upstream (kit rule: no upstream PRs for the hyprexpo fork); set PUBLISH_REMOTE to our fork"; exit 1 ;; \
