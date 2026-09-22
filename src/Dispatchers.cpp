@@ -573,6 +573,45 @@ static SDispatchResult onExpoDispatcher(std::string arg) {
     return openOverviews(ALL_MONITORS);
 }
 
+// ---------------------------------------------------------------------------------------------
+// Registration bookkeeping
+//
+// `removeGesture` matches field by field (fingers, direction, mod mask, delta scale, inhibit flag), so
+// a removal that does not name exactly what was added is a silent no-op. That matters most at unload:
+// a registration that outlives this plugin leaves a `CExpoGesture` in the compositor's gesture list
+// whose code lives in the .so being unmapped, and the next swipe update calls through its vtable —
+// a segfault inside `CTrackpadGestures::gestureUpdate`, with whoever re-drove the gesture (input-guard
+// on this machine) as the caller. Measured 2026-09-22: that is how a session died, triggered by
+// `hyprpm update` unloading this plugin while the session was live.
+//
+// So every tuple this plugin registers is remembered, and `disableExpoGestureRegistration()` removes
+// exactly those before the code goes away.
+struct SGestureRegistration {
+    int                       fingers        = 0;
+    eTrackpadGestureDirection direction      = TRACKPAD_GESTURE_DIR_NONE;
+    uint32_t modMask        = 0;
+    float    deltaScale     = 1.F;
+    bool     disableInhibit = false;
+};
+
+static std::vector<SGestureRegistration> g_ourRegistrations;
+
+static bool sameRegistration(const SGestureRegistration& a, const SGestureRegistration& b) {
+    return a.fingers == b.fingers && a.direction == b.direction && a.modMask == b.modMask && a.deltaScale == b.deltaScale && a.disableInhibit == b.disableInhibit;
+}
+
+static void rememberRegistration(const SGestureRegistration& reg) {
+    for (const auto& R : g_ourRegistrations) {
+        if (sameRegistration(R, reg))
+            return;
+    }
+    g_ourRegistrations.push_back(reg);
+}
+
+static void forgetRegistration(const SGestureRegistration& reg) {
+    std::erase_if(g_ourRegistrations, [&](const auto& R) { return sameRegistration(R, reg); });
+}
+
 static SDispatchResult registerExpoGesture(int fingerCount, const std::string& directionName, const std::string& action, const std::string& mods, float deltaScale, bool disableInhibit) {
     // PLUGIN_EXIT reloads Lua config before dlclose, so block every registration path.
     if (g_unloading || g_gestureRegistrationDisabled)
@@ -602,11 +641,33 @@ static SDispatchResult registerExpoGesture(int fingerCount, const std::string& d
     if (!result)
         return {.success = false, .error = result.error()};
 
+    const SGestureRegistration REG{.fingers = fingerCount, .direction = direction, .modMask = modMask, .deltaScale = deltaScale, .disableInhibit = disableInhibit};
+    if (action == "unset")
+        forgetRegistration(REG);
+    else
+        rememberRegistration(REG);
+
     return {};
 }
 
 void disableExpoGestureRegistration() {
     g_gestureRegistrationDisabled = true;
+
+    // Leave nothing of ours in the manager: see the bookkeeping note above. This runs from PLUGIN_EXIT
+    // *before* the code is unmapped, which is the only moment a removal is still possible. Failures are
+    // logged rather than swallowed — a registration that survives this call is the dangling-vtable
+    // crash, so the log line naming the tuple is the only warning anyone would get.
+    size_t removed = 0;
+    for (const auto& REG : g_ourRegistrations) {
+        const auto RESULT = g_pTrackpadGestures->removeGesture(REG.fingers, REG.direction, REG.modMask, REG.deltaScale, REG.disableInhibit);
+        if (RESULT)
+            ++removed;
+        else
+            Log::logger->log(Log::ERR, "[hyprexpo] could not remove gesture registration on unload ({} fingers, dir {}, mods {}, scale {:.2f}, inhibit {}): {}", REG.fingers,
+                             static_cast<int>(REG.direction), REG.modMask, REG.deltaScale, REG.disableInhibit ? 1 : 0, RESULT.error());
+    }
+    Log::logger->log(Log::INFO, "[hyprexpo] unload: removed {} of {} gesture registration(s) of ours", removed, g_ourRegistrations.size());
+    g_ourRegistrations.clear();
 }
 
 static void reportGestureConfigError(const std::string& error) {
