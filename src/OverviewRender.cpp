@@ -145,12 +145,15 @@ void COverview::close(bool switchToSelection) {
     if (closing)
         return;
 
-    // The add card is not a workspace commit. Committing it creates a persistent workspace on this
-    // monitor and keeps the overview open — mission control's "+" adds the space in place, the new
-    // card appears where the "+" was, and the "+" moves one slot right. That is also why this runs
-    // before `m_closeCommitted`: nothing about this interaction closes anything.
+    // The add card creates a workspace on this monitor and takes you to it, then closes — the same thing
+    // `SUPER + N` does, because there is no such thing as an unoccupied slot to stay behind for: an empty
+    // workspace that nobody is standing on is reaped by Hyprland immediately (measured: a workspace
+    // created on the monitor you are not looking at was gone before the grid re-derived), and "no windows,
+    // no slot" is the rule. Creating it and switching to it is what keeps it alive long enough to be used.
     if (switchToSelection && closeOnID != -1 && closeOnID < (int)images.size() && isAddTile(images[closeOnID])) {
-        const int OLD_ADD_TILE = (int)images.size() - 1;
+        const auto MON = pMonitor.lock();
+        if (!MON)
+            return;
 
         const int64_t NEW = createAddTileWorkspace();
         if (NEW == WORKSPACE_INVALID) {
@@ -158,25 +161,28 @@ void COverview::close(bool switchToSelection) {
             return;
         }
 
-        fillDynamicGrid();
-
-        for (size_t i = 0; i < images.size(); ++i) {
-            if (images[i].workspaceID == NEW) {
-                redrawID((int)i);
+        PHLWORKSPACE NEW_WS;
+        for (const auto& workspace : State::workspaceState()->workspacesCopy()) {
+            if (workspace && workspace->m_id == NEW) {
+                NEW_WS = workspace;
                 break;
             }
         }
 
-        // The grid moved under the pointer — every index after the new card shifted — so the marks
-        // the hit test left a moment ago now name a different slot: drop them and let the next
-        // pointer move (or key press) set them again. The keyboard ring, if it sat on the add card,
-        // follows it to its new place rather than jumping to a workspace the user never picked.
-        hoveredID = -1;
-        closeOnID = -1;
-        if (kbFocusID == OLD_ADD_TILE)
-            kbFocusID = (int)images.size() - 1;
+        closeOnID = -1; // so the close below is a plain close, not another add
+        if (NEW_WS) {
+            const auto OLD_WS = MON->m_activeWorkspace;
+            const auto CHANGE = Config::Actions::changeWorkspace(NEW_WS);
+            if (!CHANGE)
+                Log::logger->log(Log::ERR, "[hyprexpo] could not switch to the new workspace: {}", CHANGE.error().message);
+            else if (OLD_WS != MON->m_activeWorkspace) {
+                Animation::Workspace::startAnimation(MON->m_activeWorkspace, Animation::Workspace::ANIMATION_TYPE_IN, true, true);
+                Animation::Workspace::startAnimation(OLD_WS, Animation::Workspace::ANIMATION_TYPE_OUT, false, true);
+            }
+            startedOn = MON->m_activeWorkspace;
+        }
 
-        damage();
+        close(false);
         return;
     }
 
@@ -834,20 +840,6 @@ void COverview::fullRender() {
                 renderLabel(images[id].selectionLabelTex, images[id].selectionLabelSize, selectionTokens[tokenCounter], CHyprColor{(uint64_t)**PSELECTCOL}, 1.0f, tile,
                             std::string{*PSELECTPOS}, **PSELECTOX, **PSELECTOY, **PLABELSIZE);
 
-            // The close affordance (Mission Control's "x"): a card can be closed when it is neither the
-            // space you are on nor the trailing add card. Drawn with the same text renderer as the
-            // numbers — so it inherits the label font and its fontconfig hints instead of introducing a
-            // second text stack — in the card's top-left corner, at the exact box the hit test uses.
-            if (!isAddTile(image) && image.pWorkspace && image.pWorkspace->m_id != MON->activeWorkspaceID()) {
-                const auto BOX = closeButtonBox((int)id);
-                if (BOX.w > 0.0 && BOX.h > 0.0) {
-                    const bool HOT = (int)id == labelHoveredID || (int)id == kbFocusID;
-                    auto&      TEX = HOT ? images[id].closeTexHot : images[id].closeTexIdle;
-                    auto&      SZ  = HOT ? images[id].closeSizeHot : images[id].closeSizeIdle;
-                    renderLabel(TEX, SZ, "\u00d7", CHyprColor{(uint64_t)(HOT ? **PLCOLHOV : **PLCOLDEF)}, 1.0f, tile, std::string{"top-left"},
-                                (int)std::lround(BOX.x - tile.x), (int)std::lround(BOX.y - tile.y), (int)std::lround(labelFontSize * 0.7));
-                }
-            }
 
             ++tokenCounter;
         }

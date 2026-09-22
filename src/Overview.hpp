@@ -111,14 +111,6 @@ class COverview final : public IOverviewSession {
         SP<Render::ITexture>     selectionLabelTex;
         // Same label drawn in red while the tile is being recaptured (dirty_debug aid).
         SP<Render::ITexture>     labelTexLive;
-        // The card's close affordance ("x", top-left): two textures because the colour is baked at
-        // render time — one quiet for the resting state, one brighter for the hovered card. Both are
-        // drawn by the same label text renderer as the numbers, so the glyph, its font and its hints
-        // come from the label settings rather than from a second, slightly-different text stack.
-        SP<Render::ITexture>     closeTexIdle;
-        SP<Render::ITexture>     closeTexHot;
-        Vector2D                 closeSizeIdle = {0, 0};
-        Vector2D                 closeSizeHot  = {0, 0};
         Vector2D                 labelSizeLive = {0, 0};
         Vector2D                 labelSizeDefault = {0, 0};
         Vector2D                 labelSizeHover   = {0, 0};
@@ -215,14 +207,6 @@ class COverview final : public IOverviewSession {
     // mark it persistent in the compositor, and record the id in the kit's persistent list so the
     // mark survives a config reload (a runtime rule is not what this plugin writes; the list is
     // the contract — see the omarchy-setup-kit `workspaces` module).
-  public:
-    // ---- the close verb, public because the Lua action lives outside the class ---------------------
-    // Index of the tile holding this workspace, or -1. (The internal lookup is private; this is the
-    // narrow public form the dispatchers need.)
-    int                          closeCardIndexForID(int64_t workspaceID) const;
-    int                          keyboardFocusedTile() const { return kbFocusID; }
-    bool                         closeWorkspaceCard(int tileIndex);
-
   private:
     int64_t                      createAddTileWorkspace();
     // The workspace id whose card's close button the pointer is over, or WORKSPACE_INVALID. The
@@ -231,8 +215,6 @@ class COverview final : public IOverviewSession {
     // The close affordance's box for one tile, in the same monitor-local logical coordinates the hit
     // test uses (what `tileBoxForIndex` returns). Shared by the renderer and the hit test so the
     // drawn glyph and the clickable area cannot drift apart.
-    CBox                         closeButtonBox(int tileIndex) const;
-    int64_t                      closeButtonWorkspaceID() const;
     // Close the workspace behind `tileIndex`: move its windows to the workspace the overview opened
     // on, drop its persistent mark, and re-derive the grid (so the card disappears and the overview
     // stays open). Refuses the current workspace's card, and the trailing add card. Returns true when

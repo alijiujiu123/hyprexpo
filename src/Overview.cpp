@@ -1153,86 +1153,7 @@ COverview::~COverview() {
     resetSubmapIfNeeded();
 }
 
-namespace {
-// The kit's persistent list (omarchy-setup-kit, module `workspaces`, and the reason this plugin
-// knows that file): one workspace id per line, at
-// `$XDG_STATE_HOME/omarchy/workspaces-persistent`. It exists because a workspace *rule* added at
-// runtime does not survive `hyprctl reload` — the Lua resolver re-applies the rule for every id in
-// the file on each config parse, so the file is what makes a persistent mark durable. The format is
-// the contract between the two repos; the resolver owns it, this plugin only appends.
-std::string persistentListPath() {
-    const char* STATEHOME = std::getenv("XDG_STATE_HOME");
-    if (STATEHOME && *STATEHOME)
-        return std::string{STATEHOME} + "/omarchy/workspaces-persistent";
 
-    const char* HOME = std::getenv("HOME");
-    if (!HOME || !*HOME)
-        return {};
-
-    return std::string{HOME} + "/.local/state/omarchy/workspaces-persistent";
-}
-
-std::vector<int64_t> readPersistentList() {
-    std::vector<int64_t> ids;
-    const auto           PATH = persistentListPath();
-    if (PATH.empty())
-        return ids;
-
-    std::ifstream file{PATH};
-    std::string   line;
-    while (std::getline(file, line)) {
-        try {
-            const auto ID = std::stoll(line);
-            if (ID > 0)
-                ids.push_back(ID);
-        } catch (...) {
-            // a hand-edited or half-written line is not worth failing an overview for
-        }
-    }
-
-    return ids;
-}
-
-// The other half of the contract: a card that is closed must stop being persistent, or the resolver
-// would keep re-applying the rule that brings it back on the next config parse.
-void removePersistentMark(int64_t id) {
-    const auto PATH = persistentListPath();
-    if (PATH.empty() || id <= 0)
-        return;
-
-    const auto IDS = readPersistentList();
-    if (std::ranges::find(IDS, id) == IDS.end())
-        return;
-
-    std::vector<int64_t> kept;
-    for (const auto ID : IDS)
-        if (ID != id)
-            kept.push_back(ID);
-
-    std::ofstream file{PATH, std::ios::trunc};
-    if (!file)
-        return;
-    for (const auto ID : kept)
-        file << ID << '\n';
-}
-
-void appendPersistentMark(int64_t id) {
-    const auto PATH = persistentListPath();
-    if (PATH.empty() || id <= 0)
-        return;
-
-    const auto IDS = readPersistentList();
-    if (std::ranges::find(IDS, id) != IDS.end())
-        return;
-
-    std::error_code ec;
-    std::filesystem::create_directories(std::filesystem::path{PATH}.parent_path(), ec);
-
-    std::ofstream file{PATH, std::ios::app};
-    if (file)
-        file << id << '\n';
-}
-}
 
 // The dynamic grid, in one place: the cards are this monitor's workspaces that occupy an ordinal,
 // plus one trailing add card (HyprexpoConfig::WORKSPACE_ADD_TILE). This is the compositor-side half of the
@@ -1253,17 +1174,19 @@ void COverview::fillDynamicGrid() {
 
     const auto    MON                = pMonitor.lock();
     const int64_t currentWorkspaceID = startedOn ? startedOn->m_id : (MON ? MON->activeWorkspaceID() : WORKSPACE_INVALID);
-    const auto    PERSISTENT         = readPersistentList();
 
     std::vector<int64_t> visibleWorkspaceIDs;
     for (const auto& workspace : State::workspaceState()->workspacesCopy()) {
         if (!workspace || workspace->inert() || workspace->m_isSpecialWorkspace || workspace->m_monitor != MON)
             continue;
 
-        const bool OCCUPIED   = workspace->getWindowCount() > 0;
-        const bool PERSISTENT_WS = workspace->isPersistent() || std::ranges::find(PERSISTENT, workspace->m_id) != PERSISTENT.end();
-        const bool CURRENT    = workspace->m_id == currentWorkspaceID;
-        if (!OCCUPIED && !PERSISTENT_WS && !CURRENT)
+        // A card is a workspace with windows, or the one you are standing on. Nothing else: an empty
+        // workspace is not a slot to reserve (2026-09-22 — "no windows, no slot", which is also what
+        // Hyprland does with an empty, non-persistent workspace once its monitor leaves it). The earlier
+        // "persistent means reserved" reading is what left eleven empty workspaces occupying ordinals.
+        const bool OCCUPIED = workspace->getWindowCount() > 0;
+        const bool CURRENT  = workspace->m_id == currentWorkspaceID;
+        if (!OCCUPIED && !CURRENT)
             continue;
 
         visibleWorkspaceIDs.push_back(workspace->m_id);
@@ -1309,9 +1232,8 @@ int64_t COverview::createAddTileWorkspace() {
     if (!MON)
         return WORKSPACE_INVALID;
 
-    // Above this monitor's highest id, so the new card lands last instead of shifting every
-    // ordinal up: the kit measured that the globally-smallest id makes a new workspace on a second
-    // screen ordinal 1 (workspaces.new() on HDMI-A-1 got id 2, sorting before 4,5,6,10..16).
+    // Above this monitor's highest id, so the new card lands last instead of shifting every ordinal up
+    // (the globally-smallest id made a new workspace on a second screen ordinal 1).
     std::vector<int64_t> used;
     int64_t              highest = 0;
     for (const auto& workspace : State::workspaceState()->workspacesCopy()) {
@@ -1326,127 +1248,11 @@ int64_t COverview::createAddTileWorkspace() {
     while (std::ranges::find(used, id) != used.end())
         ++id;
 
-    const auto WS = State::workspaceState()->create(id, MON->m_id, std::to_string(id));
-    if (!WS)
-        return WORKSPACE_INVALID;
-
-    // Persistent now — the card exists so the slot survives being left empty, which is the whole
-    // point of it — and recorded for the next config parse, which is what makes the mark survive a
-    // reload (see the file header above).
-    WS->setPersistent(true);
-    appendPersistentMark(id);
-
-    return id;
-}
-
-// ---------------------------------------------------------------------------------------------
-// Closing a card
-//
-// The affordance is Mission Control's: a small box just inside the card's top-left corner, drawn
-// only on cards that can actually be closed (never the space you are on, never the trailing add
-// card). Closing means: the workspace's windows move to the workspace the overview opened on, its
-// persistent mark is dropped, and the grid is re-derived — so the card disappears and the overview
-// stays open, exactly like the add card's behaviour at the other end of the grid.
-//
-// Nothing here destroys the Hyprland workspace, and nothing has to: under the address model a
-// workspace occupies an ordinal only when it has windows, is persistent, or is the current one, so
-// the moment the windows are gone and the mark is cleared the workspace stops being a card — and
-// Hyprland reaps the empty shell itself the next time that monitor changes workspace. There is no
-// public API to force that, and inventing one would be the plugin reaching into the compositor's
-// internals for something the model already ignores.
-CBox COverview::closeButtonBox(int tileIndex) const {
-    const auto MON = pMonitor.lock();
-    if (!MON || !size || tileIndex < 0 || tileIndex >= (int)images.size())
-        return {};
-
-    const auto   TILE   = tileBoxForIndex(tileIndex, size->value(), GAP_WIDTH, currentOuterInset(), true);
-    const double SIDE   = std::clamp(TILE.h * 0.16, 16.0, 44.0);
-    const double INSETX = std::max(4.0, TILE.w * 0.03);
-    const double INSETY = std::max(4.0, TILE.h * 0.05);
-
-    return {TILE.x + INSETX, TILE.y + INSETY, SIDE, SIDE};
-}
-
-int64_t COverview::closeButtonWorkspaceID() const {
-    const auto MON = pMonitor.lock();
-    if (!MON || !size || !pos || hoveredID < 0 || hoveredID >= (int)images.size())
-        return WORKSPACE_INVALID;
-
-    const auto& IMAGE = images[hoveredID];
-    if (isAddTile(IMAGE))
-        return WORKSPACE_INVALID;
-
-    // The space you are on is not closable (Mission Control draws no control for it either), and
-    // neither is a tile with no workspace behind it.
-    if (!IMAGE.pWorkspace || IMAGE.pWorkspace->m_id == MON->activeWorkspaceID())
-        return WORKSPACE_INVALID;
-
-    const auto BOX = closeButtonBox(hoveredID);
-    if (BOX.w <= 0.0 || BOX.h <= 0.0)
-        return WORKSPACE_INVALID;
-
-    // Same transform the hover hit test uses: the cards are drawn scaled and translated, so the
-    // pointer has to be mapped back into that same space.
-    const auto LOCAL = lastMousePosLocal - pos->value() / MON->m_scale;
-    if (LOCAL.x < BOX.x || LOCAL.x > BOX.x + BOX.w || LOCAL.y < BOX.y || LOCAL.y > BOX.y + BOX.h)
-        return WORKSPACE_INVALID;
-
-    return IMAGE.workspaceID;
-}
-
-bool COverview::closeWorkspaceCard(int tileIndex) {
-    const auto MON = pMonitor.lock();
-    if (!MON || tileIndex < 0 || tileIndex >= (int)images.size() || isAddTile(images[tileIndex]))
-        return false;
-
-    // Re-resolve by id: a cached pointer can be a plugin reload old, and closing the wrong
-    // workspace is not a mistake worth making.
-    const int64_t ID = images[tileIndex].workspaceID;
-    PHLWORKSPACE  WS;
-    for (const auto& workspace : State::workspaceState()->workspacesCopy()) {
-        if (workspace && workspace->m_id == ID) {
-            WS = workspace;
-            break;
-        }
-    }
-    if (!WS || WS->m_id == MON->activeWorkspaceID() || WS == startedOn)
-        return false;
-
-    const auto TARGET = startedOn ? startedOn : MON->m_activeWorkspace;
-    if (!TARGET || TARGET->m_id == WS->m_id)
-        return false;
-
-    // Windows first, silently: closing a card must not steal focus. Then the mark, because the model
-    // stops counting the workspace the moment it is empty and unmarked (which is what makes the card
-    // disappear in the re-derivation below).
-    size_t moved = 0;
-    for (const auto& window : Desktop::windowState()->windows()) {
-        if (!window || !window->m_workspace || window->m_workspace->m_id != WS->m_id)
-            continue;
-        if (Config::Actions::moveToWorkspace(TARGET, true, window))
-            ++moved;
-    }
-
-    WS->setPersistent(false);
-    removePersistentMark(WS->m_id);
-
-    Log::logger->log(Log::INFO, "HYPREXPO_CLOSE_CARD workspace={} windows_moved={} target={} remaining={}", WS->m_id, moved, TARGET->m_id,
-                     WS->getWindowCount());
-
-    const int OLD_ADD_TILE = (int)images.size() - 1;
-    fillDynamicGrid();
-    redrawAll();
-
-    // The grid moved under the pointer, so the marks the hit test left are stale: drop them and let
-    // the next move (or key) set them again. The keyboard ring follows the add card if it sat on it,
-    // the way it does after a card is added.
-    hoveredID = -1;
-    closeOnID = -1;
-    if (kbFocusID == OLD_ADD_TILE)
-        kbFocusID = (int)images.size() - 1;
-
-    damage();
-    return true;
+    // A plain empty workspace: there is no "reserve a slot" any more (2026-09-22 — the rule is "no
+    // windows, no slot"), so the "+" and `SUPER + N` now do exactly the same thing, and Hyprland reaps
+    // it once you leave it empty.
+    const auto WS = State::workspaceState()->create(id, MON->m_id, std::to_string(id), false);
+    return WS ? id : WORKSPACE_INVALID;
 }
 
 COverview::COverview(PHLWORKSPACE startedOn_, PHLMONITOR monitor_, bool swipe_, uint64_t sessionGeneration) : startedOn(startedOn_), m_sessionGeneration(sessionGeneration), swipe(swipe_) {
@@ -1736,15 +1542,6 @@ COverview::COverview(PHLWORKSPACE startedOn_, PHLMONITOR monitor_, bool swipe_, 
                 return;
         }
 
-        // A click inside a card's close affordance closes that workspace (its windows move to the
-        // workspace the overview opened on) and leaves the overview open: the grid re-derives in place,
-        // so the card disappears rather than the whole session going away. Checked before the commit
-        // path, because the button sits *inside* the card and would otherwise be read as "switch to
-        // this workspace".
-        if (TARGET && TARGET->closeButtonWorkspaceID() != WORKSPACE_INVALID) {
-            TARGET->closeWorkspaceCard(TARGET->hoveredID);
-            return;
-        }
 
         if (TARGET && TARGET->selectHoveredWorkspace())
             closeOverviewsSelecting(TARGET);

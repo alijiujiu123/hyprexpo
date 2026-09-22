@@ -37,14 +37,7 @@ std::string COverview::debugGeometry() const {
 
     return std::format("canvas={:.1f}x{:.1f} pos=({:.1f},{:.1f}) closing={} pct={:.3f} anim={:.3f} gap={:.1f} outer={:.1f} tile=(x{:.1f} y{:.1f} w{:.1f} h{:.1f}) screen={:.0f}x{:.0f} scale={:.2f} hovered={} focus={} opened={} mouse=({:.1f},{:.1f})",
                        size->value().x, size->value().y, POSV.x, POSV.y, closing ? 1 : 0, PERCENT, size->getPercent(), GAPSIZE, OUTER, BOX.x + POSV.x / SCALE,
-                       BOX.y + POSV.y / SCALE, BOX.w, BOX.h, MON->m_size.x, MON->m_size.y, SCALE, hoveredID, kbFocusID, openedID, MOUSE.x, MOUSE.y)
-           // closeHit: the workspace whose close button is under the pointer (the click's own test).
-           // closeBox: that button in *global* logical coordinates, so the box can be checked (and the
-           // pointer parked in it) from a script — the one part of the affordance that a script cannot
-           // otherwise reach, because a click cannot be injected.
-           + std::format(" closeHit={} closeBox=({:.1f},{:.1f},{:.1f},{:.1f})", closeButtonWorkspaceID(),
-                         closeButtonBox(hoveredID).x + MON->m_position.x, closeButtonBox(hoveredID).y + MON->m_position.y, closeButtonBox(hoveredID).w,
-                         closeButtonBox(hoveredID).h);
+                       BOX.y + POSV.y / SCALE, BOX.w, BOX.h, MON->m_size.x, MON->m_size.y, SCALE, hoveredID, kbFocusID, openedID, MOUSE.x, MOUSE.y);
 }
 
 bool COverview::selectHoveredWorkspace() {
@@ -58,10 +51,6 @@ bool COverview::selectHoveredWorkspace() {
     // happened to sit over a thumbnail, which reads as the gesture misfiring on its own.
     closeOnID = hoveredID >= 0 && hoveredID < (int)images.size() ? hoveredID : -1;
     return closeOnID != -1;
-}
-
-int COverview::closeCardIndexForID(int64_t workspaceID) const {
-    return tileForWorkspaceID((int)workspaceID);
 }
 
 int64_t COverview::selectedWorkspaceID() const {

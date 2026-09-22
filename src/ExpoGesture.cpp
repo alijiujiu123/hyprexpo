@@ -46,32 +46,18 @@ void CExpoGesture::begin(const ITrackpadGesture::STrackpadGestureBegin& e) {
     m_monitor.reset();
     m_sessionGeneration = 0;
 
-    // Which screen the overview belongs to: the screen of the window the user is working in.
+    // The screen the *pointer* is on.
     //
-    // Neither of the obvious answers survives contact with this machine. The *pointer's* screen is what
-    // macOS does and what this did until 2026-09-22, but a pointer resting on the other screen opens the
-    // overview over there, which reads as "the gesture does nothing at all". The *monitor* focus is worse:
-    // with `input:follow_mouse = 1` it tracks the pointer, so it is the same answer, and it goes stale
-    // when the pointer is moved without a focus re-evaluation (measured: a warp to HDMI left the focused
-    // monitor on eDP-1, and the overview opened — invisibly — on the laptop panel).
-    //
-    // The focused *window* is where the user's attention actually is, and its monitor cannot go stale the
-    // way a focus flag can. The pointer is the fallback (no focused window), the focused monitor the last
-    // resort.
-    PHLMONITOR monitor;
-    if (const auto FOCUSED_WINDOW = Desktop::focusState()->window(); FOCUSED_WINDOW) {
-        // `m_monitor` is a weak reference: it has to be locked, and a window whose monitor is gone simply
-        // falls through to the pointer below.
-        if (const auto WINDOW_MONITOR = FOCUSED_WINDOW->m_monitor.lock())
-            monitor = WINDOW_MONITOR;
-    }
-
-    if (!monitor)
-        monitor = State::monitorState()->query().vec(g_pInputManager->getMouseCoordsInternal()).run();
-
-    if (!monitor)
-        monitor = Desktop::focusState()->monitor();
-
+    // Three rules were tried on 2026-09-22 and this is the one that survived: the focused *window* and
+    // the focused *monitor* both go stale with respect to what the user is looking at (measured: a
+    // window on workspace 6 reported monitor 0, and a warp to HDMI left the focused monitor on eDP-1),
+    // and each of them opened the overview on a screen the user was not looking at — which reads as
+    // "three fingers up does nothing". The pointer is where their input actually goes (with
+    // `input:follow_mouse = 1` the window focus follows it too, so the pointer is also what gets typed
+    // into), and it is what macOS uses for Mission Control.
+    const auto monitor = State::monitorState()->query().vec(g_pInputManager->getMouseCoordsInternal()).run();
+    if (!monitor || !monitor->m_activeWorkspace)
+        return;
     if (!monitor || !monitor->m_activeWorkspace)
         return;
 
