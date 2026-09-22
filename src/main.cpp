@@ -29,7 +29,20 @@ inline CFunctionHook* g_pAddDamageHookA      = nullptr;
 inline CFunctionHook* g_pAddDamageHookB      = nullptr;
 inline CFunctionHook* g_pCommitWindowHook    = nullptr;
 inline CFunctionHook* g_pSolitaryHook        = nullptr;
-typedef void (*origRenderWorkspace)(void*, PHLMONITOR, PHLWORKSPACE, const Time::steady_tp&, const CBox&);
+// The monitor and workspace shared pointers are taken by `const&` here and in the call-through, not by
+// value, and that is what keeps this hook off a crash the sibling plugin hit five times.
+//
+// `CSharedPointer<T>` has a user-provided copy constructor, so under the Itanium ABI a *by value*
+// parameter of that type is already a pointer to a temporary the caller builds — declaring it by value
+// therefore makes the compiler build a second temporary on every call, including the fall-through to
+// the original below. Hyprland's capture path reaches this function through `renderMonitor` with a
+// monitor it is allowed to hand over expired (`CScreenshareSession::monitor()` returns empty when a
+// shared window's monitor weak ref is gone), and incrementing a dead control block aborts the
+// compositor. `edgebounce`'s `renderWindow` hook crashed this machine exactly that way five times
+// (2026-09-21 ×4 through `hkRenderMonitor`, 2026-09-22 ×1) and its README carries the symbolized stack;
+// `const&` is ABI-identical — the caller passes its temporary by reference either way — and copies
+// nothing.
+typedef void (*origRenderWorkspace)(void*, const PHLMONITOR&, const PHLWORKSPACE&, const Time::steady_tp&, const CBox&);
 typedef void (*origAddDamageA)(void*, const CBox&);
 typedef void (*origAddDamageB)(void*, const pixman_region32_t*);
 typedef void (*origCommitWindow)(void*);
@@ -66,7 +79,7 @@ static void hkCommitWindow(void* thisptr) {
     markWorkspaceContentDirty(WINDOW->m_workspace);
 }
 
-static void hkRenderWorkspace(void* thisptr, PHLMONITOR pMonitor, PHLWORKSPACE pWorkspace, const Time::steady_tp& now, const CBox& geometry) {
+static void hkRenderWorkspace(void* thisptr, const PHLMONITOR& pMonitor, const PHLWORKSPACE& pWorkspace, const Time::steady_tp& now, const CBox& geometry) {
     auto* const OV = overviewForMonitor(pMonitor);
 
     if (!OV || isRenderingOverview() || OV->blocksOverviewRendering() || !OV->shouldRenderOverviewForMonitor(pMonitor))
