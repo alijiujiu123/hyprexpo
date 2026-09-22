@@ -145,46 +145,6 @@ void COverview::close(bool switchToSelection) {
     if (closing)
         return;
 
-    // The add card creates a workspace on this monitor and takes you to it, then closes — the same thing
-    // `SUPER + N` does, because there is no such thing as an unoccupied slot to stay behind for: an empty
-    // workspace that nobody is standing on is reaped by Hyprland immediately (measured: a workspace
-    // created on the monitor you are not looking at was gone before the grid re-derived), and "no windows,
-    // no slot" is the rule. Creating it and switching to it is what keeps it alive long enough to be used.
-    if (switchToSelection && closeOnID != -1 && closeOnID < (int)images.size() && isAddTile(images[closeOnID])) {
-        const auto MON = pMonitor.lock();
-        if (!MON)
-            return;
-
-        const int64_t NEW = createAddTileWorkspace();
-        if (NEW == WORKSPACE_INVALID) {
-            Log::logger->log(Log::ERR, "[hyprexpo] the add card could not create a workspace");
-            return;
-        }
-
-        PHLWORKSPACE NEW_WS;
-        for (const auto& workspace : State::workspaceState()->workspacesCopy()) {
-            if (workspace && workspace->m_id == NEW) {
-                NEW_WS = workspace;
-                break;
-            }
-        }
-
-        closeOnID = -1; // so the close below is a plain close, not another add
-        if (NEW_WS) {
-            const auto OLD_WS = MON->m_activeWorkspace;
-            const auto CHANGE = Config::Actions::changeWorkspace(NEW_WS);
-            if (!CHANGE)
-                Log::logger->log(Log::ERR, "[hyprexpo] could not switch to the new workspace: {}", CHANGE.error().message);
-            else if (OLD_WS != MON->m_activeWorkspace) {
-                Animation::Workspace::startAnimation(MON->m_activeWorkspace, Animation::Workspace::ANIMATION_TYPE_IN, true, true);
-                Animation::Workspace::startAnimation(OLD_WS, Animation::Workspace::ANIMATION_TYPE_OUT, false, true);
-            }
-            startedOn = MON->m_activeWorkspace;
-        }
-
-        close(false);
-        return;
-    }
 
     // The teardown animation is now committed; lock out further swipe input so a
     // re-grabbed gesture can't rewind it (issue #57 follow-up: close replay).
@@ -519,17 +479,7 @@ void COverview::fullRender() {
 
             CRegion damage{0, 0, INT16_MAX, INT16_MAX};
 
-            if (isAddTile(images[id])) {
-                // The add card (HyprexpoConfig::WORKSPACE_ADD_TILE) is a slot, not a workspace, so there is no
-                // preview to draw. It reads as the quietest surface in the grid — a faint translucent
-                // wash with the same rounding and the same hover/focus borders as a workspace card —
-                // so it is unmistakably "an empty place you can add", never a window. Its glyph is
-                // rendered through the label pipeline below, which is also what makes hover and
-                // keyboard focus light it up exactly like every other card.
-                Render::GL::g_pHyprOpenGL->renderRect(texbox, CHyprColor{1.0f, 1.0f, 1.0f, 0.06f * alpha}, {.round = tileRound, .roundingPower = ROUND_PWR});
-            } else {
                 Render::GL::g_pHyprOpenGL->renderTextureInternal(images[id].fb->getTexture(), texbox, {.damage = &damage, .a = alpha, .round = tileRound, .roundingPower = ROUND_PWR});
-            }
 
         }
     }
@@ -754,11 +704,7 @@ void COverview::fullRender() {
     if (!std::string{*PSELECTMAP}.empty())
         selectionTokens = splitCommaList(std::string{*PSELECTMAP});
 
-    // The add card's glyph travels through this same block, so it has to keep running even when
-    // labels are switched off: the "+" is the card's content, not a label. Everything else about it
-    // — the state colours, the hover/focus scale, the anchor — is then whatever the labels use.
-    const bool hasAddTile = std::ranges::any_of(images, [](const auto& image) { return isAddTile(image); });
-    if (!closing && (**PLABELEN || **PSELECTEN || showWorkspaceNumbers || hasAddTile)) {
+    if (!closing && (**PLABELEN || **PSELECTEN || showWorkspaceNumbers)) {
         const int labelHoveredID = hoveredID;
         const bool modernPositionSet = CompatHyprlandAPI::configValueSetByUser("plugin:hyprexpo:label_position");
         const bool legacyPositionSet = CompatHyprlandAPI::configValueSetByUser("plugin:hyprexpo:label_pos");
@@ -795,13 +741,7 @@ void COverview::fullRender() {
             if (Hyprexpo::shouldShowWorkspaceLabel(labelEnabled, labelShow, (int)id == labelHoveredID, (int)id == kbFocusID, (int)id == openedID)) {
                 std::string label;
                 const std::string mode = showWorkspaceNumbers ? std::string{"id"} : std::string{*PLABELMODE};
-                if (isAddTile(images[id])) {
-                    // The trailing slot's content: a plus, in the label colour of whatever state the
-                    // card is in (so hover and keyboard focus light it up exactly like a workspace
-                    // card's number). Two and a half times the label size, because the glyph is the
-                    // whole card, not an annotation on one.
-                    label = "+";
-                } else if (dynamicGrid && showWorkspaceNames) {
+                if (dynamicGrid && showWorkspaceNames) {
                     label = resolveWorkspaceName(id);
                 } else if (mode == "token") {
                     if (tokenCounter < (int)labelTokens.size() && !labelTokens[tokenCounter].empty())
@@ -832,7 +772,7 @@ void COverview::fullRender() {
                     const uint64_t COL = LIVE ? 0xFFFF2222 : (uint64_t)(NUM ? **PWSNUMCOL : st == 1 ? **PLCOLHOV : st == 2 ? **PLCOLFOC : st == 3 ? **PLCOLCUR : **PLCOLDEF);
                     const float  SCALE = (!NUM && st == 1) ? **PLSCALEH : (!NUM && st == 2) ? **PLSCALEF : 1.0f;
 
-                    renderLabel(TEX, SZ, label, CHyprColor{COL}, SCALE, tile, labelAnchor, **PLABELOX, **PLABELOY, isAddTile(images[id]) ? (int)std::lround(labelFontSize * 2.5) : labelFontSize);
+                    renderLabel(TEX, SZ, label, CHyprColor{COL}, SCALE, tile, labelAnchor, **PLABELOX, **PLABELOY, labelFontSize);
                 }
             }
 

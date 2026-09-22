@@ -1156,7 +1156,8 @@ COverview::~COverview() {
 
 
 // The dynamic grid, in one place: the cards are this monitor's workspaces that occupy an ordinal,
-// plus one trailing add card (HyprexpoConfig::WORKSPACE_ADD_TILE). This is the compositor-side half of the
+// including the screen's spare, the empty workspace that is the "new workspace". This is the
+// compositor-side half of the
 // workspace-address model in omarchy-setup-kit's `workspaces` module — the same three rules:
 //
 //   * a workspace is a card when it has windows, is persistent, or is the one you are standing on
@@ -1184,9 +1185,15 @@ void COverview::fillDynamicGrid() {
         // workspace is not a slot to reserve (2026-09-22 — "no windows, no slot", which is also what
         // Hyprland does with an empty, non-persistent workspace once its monitor leaves it). The earlier
         // "persistent means reserved" reading is what left eleven empty workspaces occupying ordinals.
+        // A card is a workspace with windows, the one you are standing on, or the screen's spare — the
+        // single empty workspace every screen keeps at the end (the user's model, 2026-09-22). The spare
+        // is the only workspace the resolver marks persistent, so that signal means "this is a slot"
+        // again, and the last card *is* the new workspace: clicking it is how you add one. Everything
+        // else empty is not a slot at all.
         const bool OCCUPIED = workspace->getWindowCount() > 0;
         const bool CURRENT  = workspace->m_id == currentWorkspaceID;
-        if (!OCCUPIED && !CURRENT)
+        const bool SPARE    = workspace->isPersistent();
+        if (!OCCUPIED && !CURRENT && !SPARE)
             continue;
 
         visibleWorkspaceIDs.push_back(workspace->m_id);
@@ -1213,46 +1220,17 @@ void COverview::fillDynamicGrid() {
         }
     }
 
-    const size_t CARDS = visibleWorkspaceIDs.size() + 1;
+    // No add card any more (2026-09-22): the screen's spare — the empty workspace the resolver keeps at
+    // the end — already is the "new workspace", shown as the last card, so a button for it was one
+    // affordance too many.
+    const size_t CARDS = visibleWorkspaceIDs.size();
 
     gridShape = Hyprexpo::computeDynamicGridShape((int)CARDS);
     images.resize(CARDS);
     for (size_t i = 0; i < visibleWorkspaceIDs.size(); ++i)
         images[i].workspaceID = visibleWorkspaceIDs[i];
 
-    // The add card is always the trailing slot (mission control's "+" sits after the spaces, and
-    // when a space is added it moves one to the right rather than the new card appearing elsewhere).
-    images[CARDS - 1].workspaceID = HyprexpoConfig::WORKSPACE_ADD_TILE;
-
     lastTileCapture.resize(CARDS, std::chrono::steady_clock::now());
-}
-
-int64_t COverview::createAddTileWorkspace() {
-    const auto MON = pMonitor.lock();
-    if (!MON)
-        return WORKSPACE_INVALID;
-
-    // Above this monitor's highest id, so the new card lands last instead of shifting every ordinal up
-    // (the globally-smallest id made a new workspace on a second screen ordinal 1).
-    std::vector<int64_t> used;
-    int64_t              highest = 0;
-    for (const auto& workspace : State::workspaceState()->workspacesCopy()) {
-        if (!workspace)
-            continue;
-        used.push_back(workspace->m_id);
-        if (workspace->m_monitor == MON && workspace->m_id > highest)
-            highest = workspace->m_id;
-    }
-
-    int64_t id = highest + 1;
-    while (std::ranges::find(used, id) != used.end())
-        ++id;
-
-    // A plain empty workspace: there is no "reserve a slot" any more (2026-09-22 — the rule is "no
-    // windows, no slot"), so the "+" and `SUPER + N` now do exactly the same thing, and Hyprland reaps
-    // it once you leave it empty.
-    const auto WS = State::workspaceState()->create(id, MON->m_id, std::to_string(id), false);
-    return WS ? id : WORKSPACE_INVALID;
 }
 
 COverview::COverview(PHLWORKSPACE startedOn_, PHLMONITOR monitor_, bool swipe_, uint64_t sessionGeneration) : startedOn(startedOn_), m_sessionGeneration(sessionGeneration), swipe(swipe_) {
