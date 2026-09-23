@@ -11,6 +11,7 @@
 #include <hyprland/src/event/EventBus.hpp>
 
 #include "Dispatchers.hpp"
+#include "ExpoGesture.hpp"
 #include "globals.hpp"
 #include "IOverviewSession.hpp"
 #include "OverviewCapture.hpp"
@@ -216,6 +217,10 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         failNotif("Failed initializing hooks");
         throw std::runtime_error("[he] Failed initializing hooks");
     }
+
+    // Before the renderer checks whether a frame is needed: a resampled gesture drag places the
+    // overview here, which is what makes the frame necessary (ExpoGesture::resampleFrame).
+    static auto PPRECHECKS = Event::bus()->m_events.render.preChecks.listen([](PHLMONITOR pMonitor) { CExpoGesture::preRender(pMonitor); });
 
     static auto P = Event::bus()->m_events.render.pre.listen([](PHLMONITOR pMonitor) {
         if (auto* const OV = overviewForMonitor(pMonitor))

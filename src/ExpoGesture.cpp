@@ -12,6 +12,9 @@
 #include <hyprland/src/state/MonitorState.hpp>
 
 #include <algorithm>
+#include <chrono>
+#include <format>
+#include <cmath>
 
 namespace {
 // Config values are read per event, never cached, so `hl.config()`/hyprctl changes apply
@@ -35,6 +38,104 @@ double momentumWindowSeconds() {
 }
 }
 
+namespace {
+// The gesture the fingers are on right now (the trackpad owns the object; this only points at it
+// while a gesture is open, and the destructor clears it).
+CExpoGesture* g_liveExpo = nullptr;
+
+double steadyMs() {
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+int resampleMs() {
+    return std::clamp<int>(static_cast<int>(CompatHyprlandAPI::intValue("plugin:hyprexpo:resample_ms")), 0, 50);
+}
+
+// A touchpad event's instant on the steady clock: libinput stamps CLOCK_MONOTONIC ms (truncated to 32
+// bits), which is what steady_clock reads on Linux. A stamp not from that clock, or implausibly old,
+// falls back to the arrival instant.
+double eventMs(const ITrackpadGesture::STrackpadGestureUpdate& e) {
+    const double NOW = steadyMs();
+    if (!e.swipe)
+        return NOW;
+
+    const uint32_t AGE = static_cast<uint32_t>(static_cast<uint64_t>(NOW)) - e.swipe->timeMs;
+    return AGE <= 100 ? NOW - AGE : NOW;
+}
+} // namespace
+
+CExpoGesture::~CExpoGesture() {
+    if (g_liveExpo == this)
+        g_liveExpo = nullptr;
+}
+
+void CExpoGesture::preRender(const PHLMONITOR& monitor) {
+    if (!g_liveExpo)
+        return;
+
+    g_liveExpo->resampleFrame(monitor);
+    g_liveExpo->probeFrame(monitor);
+}
+
+void CExpoGesture::probeFrame(const PHLMONITOR& monitor) {
+    if (!momentumDebugEnabled() || !monitor || monitor != m_monitor.lock())
+        return;
+
+    const double NOW = steadyMs();
+    if (NOW == m_lastProbeNow)
+        return;
+
+    m_lastProbeNow = NOW;
+    m_frames.emplace_back(NOW, m_resampling ? m_sent : static_cast<double>(m_lastDelta));
+}
+
+// Each one-period step against the mean of its two neighbours, over consecutive frames one refresh
+// apart where the overview moved - how even the drag looked, frame by frame.
+std::string CExpoGesture::frameSummary() const {
+    const auto   MON    = m_monitor.lock();
+    const double PERIOD = MON && MON->m_refreshRate > 1.F ? 1000.0 / MON->m_refreshRate : 1000.0 / 60.0;
+
+    std::vector<double> steps;
+    for (size_t i = 1; i < m_frames.size(); i++) {
+        const double DT = m_frames[i].first - m_frames[i - 1].first;
+        const double DX = m_frames[i].second - m_frames[i - 1].second;
+        steps.push_back(DT > 0.0 && DT <= 1.5 * PERIOD && std::abs(DX) > 1e-3 ? DX : NAN);
+    }
+
+    double dev = 0.0, sum = 0.0;
+    int    n   = 0;
+    for (size_t i = 1; i + 1 < steps.size(); i++) {
+        if (!std::isfinite(steps[i - 1]) || !std::isfinite(steps[i]) || !std::isfinite(steps[i + 1]))
+            continue;
+        dev += std::abs(steps[i] - (0.5 * (steps[i - 1] + steps[i + 1])));
+        sum += std::abs(steps[i]);
+        n++;
+    }
+
+    return std::format("frames={} judged={} step_deviation={:.1f}% resample_ms={}", m_frames.size(), n, sum > 0.0 ? dev / sum * 100.0 : 0.0, m_resampling ? resampleMs() : 0);
+}
+
+void CExpoGesture::resampleFrame(const PHLMONITOR& monitor) {
+    if (!m_resampling || !monitor || monitor != m_monitor.lock())
+        return;
+
+    auto* const OV = overview();
+    if (!OV || OV->closeCommitted())
+        return;
+
+    const double POS = m_resampler.at(steadyMs() - resampleMs());
+
+    if (std::abs(POS - m_sent) > 1e-4) {
+        m_sent = POS;
+        OV->onSwipeUpdate(std::max(POS, 0.01));
+    }
+
+    // Still behind the newest event (the fingers stopped less than resample_ms ago): ask for the
+    // frame that catches up - no event will come to schedule it.
+    if (std::abs(m_resampler.latest() - m_sent) > 1e-4)
+        monitor->scheduleFrame();
+}
+
 void CExpoGesture::begin(const ITrackpadGesture::STrackpadGestureBegin& e) {
     ITrackpadGesture::begin(e);
 
@@ -45,6 +146,12 @@ void CExpoGesture::begin(const ITrackpadGesture::STrackpadGestureBegin& e) {
     m_haveVelocity = false;
     m_monitor.reset();
     m_sessionGeneration = 0;
+    m_resampling = resampleMs() > 0;
+    m_sent       = 0.0;
+    m_frames.clear();
+    m_lastProbeNow = -1.0;
+    m_resampler.reset(steadyMs(), 0.0);
+    g_liveExpo = this;
 
     // The screen the *pointer* is on.
     //
@@ -140,13 +247,35 @@ void CExpoGesture::update(const ITrackpadGesture::STrackpadGestureUpdate& e) {
     if (m_lastDelta <= 0.01) // plugin will crash if swipe ends at <= 0
         m_lastDelta = 0.01;
 
-    OV->onSwipeUpdate(m_lastDelta);
+    if (!m_resampling) {
+        OV->onSwipeUpdate(m_lastDelta);
+        return;
+    }
+
+    // Resampled: record where the fingers are and when; the next frame places the overview
+    // (resampleFrame). The 147 Hz touchpad against a 120 Hz panel otherwise moves it 1 or 2 finger
+    // steps per frame - the beat edgebounce measured at 45-77 % step unevenness on the same machine.
+    m_resampler.add(eventMs(e), m_lastDelta);
+    if (const auto MONITOR = m_monitor.lock())
+        MONITOR->scheduleFrame();
 }
 
 void CExpoGesture::end(const ITrackpadGesture::STrackpadGestureEnd& e) {
+    if (momentumDebugEnabled() && !m_frames.empty())
+        Log::logger->log(Log::INFO, "HYPREXPO_SWIPE_FRAMES {}", frameSummary());
+    const bool WASRESAMPLING = m_resampling;
+    m_resampling             = false;
+    if (g_liveExpo == this)
+        g_liveExpo = nullptr;
+
     auto* const OV = overview();
     if (!OV || OV->closeCommitted())
         return;
+
+    // The overview decides and lands from its own last position: hand it the fingers' true final
+    // travel first (at most resample_ms of motion ahead of what the last frame showed).
+    if (WASRESAMPLING && std::abs(m_lastDelta - m_sent) > 1e-4)
+        OV->onSwipeUpdate(m_lastDelta);
 
     const double PROJECTED = e.swipe ? releaseProjectedDelta(e.swipe->timeMs) : -1.0;
 

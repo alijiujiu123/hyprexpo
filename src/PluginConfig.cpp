@@ -67,6 +67,9 @@ void registerHyprexpoConfigValues() {
     addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:momentum_window_ms", "release momentum: velocity time constant in ms",
                                                          HyprexpoConfig::MOMENTUM_WINDOW_MS_DEFAULT,
                                                          Config::Values::SIntValueOptions{.min = 1, .max = 1000}));
+    addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:resample_ms", "gesture drag: place the overview once per frame where the fingers were this many ms earlier (0 = per touchpad event)",
+                                                         HyprexpoConfig::RESAMPLE_MS_DEFAULT,
+                                                         Config::Values::SIntValueOptions{.min = 0, .max = 50}));
     addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:momentum_debug", "release momentum: log each gesture release for calibration",
                                                          HyprexpoConfig::MOMENTUM_DEBUG_DEFAULT,
                                                          Config::Values::SIntValueOptions{.min = 0, .max = 1}));

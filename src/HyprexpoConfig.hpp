@@ -50,6 +50,9 @@ inline constexpr int         MOMENTUM_WINDOW_MS_DEFAULT      = 80;
 // Log one HYPREXPO_SWIPE_RELEASE line per gesture release (delta / velocity / projection),
 // so the momentum feel can be calibrated from numbers instead of guesswork.
 inline constexpr int         MOMENTUM_DEBUG_DEFAULT          = 0;
+// Input resampling for the gesture drag, ms: 0 = the overview follows every touchpad event; N = it
+// is placed once per frame where the fingers were N ms earlier (InputResampler.hpp).
+inline constexpr int         RESAMPLE_MS_DEFAULT             = 0;
 // Overview open/close animation duration in 100 ms steps (0 = inherit the compositor's
 // `windowsMove` leaf, which also animates window moves).
 inline constexpr int         OVERVIEW_ANIM_SPEED_DEFAULT     = 0;
