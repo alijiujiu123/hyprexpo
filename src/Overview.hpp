@@ -194,35 +194,11 @@ class COverview final : public IOverviewSession {
 
     std::vector<SWorkspaceImage> images;
 
-    // The "+" under the cards (the second way to add a workspace, the bar's trailing one being the
-    // first): a centred box below the grid, its own texture pair because it is not a grid cell.
-    SP<Render::ITexture>         addTexIdle;
-    SP<Render::ITexture>         addTexHot;
-    Vector2D                     addSizeIdle = {0, 0};
-    Vector2D                     addSizeHot  = {0, 0};
 
-    // Re-derives the dynamic grid — which workspaces of this monitor are cards, plus the trailing
-    // add card — and sizes `images` (and the per-tile bookkeeping) to match. Called from the
-    // constructor and again after the add card creates a workspace, so the new card appears
-    // without tearing the session down.
+    // Re-derives the dynamic grid from this monitor's workspaces and sizes `images` (and the per-tile
+    // bookkeeping) to match. Called from the constructor when the overview opens.
     void                         fillDynamicGrid();
-    // The box of the "+" under the grid, in the same monitor-local logical space the tiles use, and
-    // whether the pointer is inside it. Shared by the renderer and the hit test so they cannot drift.
-    CBox                         addButtonBox() const;
-    bool                         pointerOverAddButton() const;
-    // The click: create a workspace on this screen and go there (then the overview closes, because the
-    // user has moved on). Returns true when it acted.
-    bool                         handleAddButtonClick();
-    // True for the trailing "create a workspace" slot (see HyprexpoConfig::WORKSPACE_ADD_TILE). It has no
-    // workspace behind it: the capture path must skip it and the label logic draws a "+" instead.
-    static bool                  isAddTile(const SWorkspaceImage& image) { return image.workspaceID == HyprexpoConfig::WORKSPACE_ADD_TILE; }
-    static bool                  isAddTile(int64_t workspaceID) { return workspaceID == HyprexpoConfig::WORKSPACE_ADD_TILE; }
-    // The add card's commit: create a persistent workspace on this monitor above its highest id,
-    // mark it persistent in the compositor, and record the id in the kit's persistent list so the
-    // mark survives a config reload (a runtime rule is not what this plugin writes; the list is
-    // the contract — see the omarchy-setup-kit `workspaces` module).
   private:
-    int64_t                      createAddTileWorkspace();
     // The workspace id whose card's close button the pointer is over, or WORKSPACE_INVALID. The
     // button is a small square just inside the card's top-left corner; it is the *hovered* card that
     // is asked, because that is the card the pointer is interacting with.
@@ -230,9 +206,8 @@ class COverview final : public IOverviewSession {
     // test uses (what `tileBoxForIndex` returns). Shared by the renderer and the hit test so the
     // drawn glyph and the clickable area cannot drift apart.
     // Close the workspace behind `tileIndex`: move its windows to the workspace the overview opened
-    // on, drop its persistent mark, and re-derive the grid (so the card disappears and the overview
-    // stays open). Refuses the current workspace's card, and the trailing add card. Returns true when
-    // it acted.
+    // on, drop its persistent mark, and re-derive the grid so the card disappears while the overview
+    // stays open. Refuses the current workspace's card. Returns true when it acted.
 
     PHLWORKSPACE                 startedOn;
 

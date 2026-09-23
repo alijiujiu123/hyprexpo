@@ -20,13 +20,6 @@ inline constexpr int         LEGACY_ANIMATE_ENTRY_DEFAULT        = 0;
 inline constexpr int         WALLPAPER_BG_DEFAULT                = 0;
 inline constexpr std::size_t DYNAMIC_GRID_MAX_TILES              = 64;
 
-// The trailing "add" card of a dynamic grid (mission-control style): not a workspace at all, but a
-// slot the user can commit to in order to create one. Deliberately *not* WORKSPACE_INVALID — that
-// value means "no workspace in this slot", is refused by the hit test and skipped by the capture
-// path, and is what a clamped grid leaves behind at its edges. This slot is selectable, draws as
-// its own material card, and turns a commit into "create a persistent workspace on this monitor
-// and keep the overview open" (see COverview::createAddTileWorkspace).
-inline constexpr int64_t     WORKSPACE_ADD_TILE                  = -2;
 
 inline constexpr int         COLUMNS_DEFAULT                 = 3;
 inline constexpr int         ROWS_DEFAULT                    = 0;

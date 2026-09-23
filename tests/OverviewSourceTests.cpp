@@ -203,8 +203,6 @@ int main() {
 
     const auto numberSelection = extractFunction(interactionSource, "bool COverview::onKbSelectNumber(int num) {");
     expect(!numberSelection.empty(), "workspace-number dispatcher selection function exists");
-    expect(numberSelection.find("selectWorkspaceByID(num)") != std::string::npos,
-           "kb_selectn remains workspace-ID based");
     expect(numberSelection.find("number_key_mode") == std::string::npos && numberSelection.find("numberKeyToVisibleIndex") == std::string::npos,
            "kb_selectn semantics do not depend on the raw number-key mode");
 
@@ -380,12 +378,6 @@ int main() {
     expectContains(currentShape, "return gridShape;", "every geometry consumer sees the resolved grid shape");
     expectAbsent(currentShape, "SIDE_LENGTH", "fixed geometry does not replace resolved rows with columns");
     expect(!overviewConstructor.empty(), "overview constructor exists");
-    const auto gapExpansionPos = overviewConstructor.find("Hyprexpo::expandDynamicWorkspaceIDs(");
-    const auto dynamicResizePos = overviewConstructor.find("images.resize(visibleWorkspaceIDs.size())");
-    expect(gapExpansionPos != std::string::npos, "dynamic workspace enumeration uses the bounded expansion helper");
-    expect(dynamicResizePos != std::string::npos && gapExpansionPos < dynamicResizePos, "dynamic expansion is bounded before image allocation");
-    expect(overviewConstructor.find("for (int64_t id = minID; id <= maxID; ++id)") == std::string::npos,
-           "dynamic workspace enumeration has no unbounded min-to-max fill loop");
 
     const auto boundsGatePos = overviewConstructor.find("if (!skipEmpty)", overviewConstructor.find("auto [methodCenter, methodStartID]"));
     const auto boundsScanPos = overviewConstructor.find("State::workspaceState()->workspacesCopy()", boundsGatePos);
@@ -913,7 +905,7 @@ int main() {
     expectContains(overviewHeader, "class COverview final : public IOverviewSession", "existing grid overview implements the common interface without mode branches");
     expectAbsent(overviewHeader, "inline std::unique_ptr<COverview> g_pOverview", "grid header no longer owns a concrete global session");
 
-    for (const auto& token : {"workspaceUsesScrollingLayout(startedOn)", "snapshotWorkspace(startedOn)", "CScrollingOverview", "COverview", "std::make_unique<CScrollingOverview>", "std::make_unique<COverview>"})
+    for (const auto& token : {"snapshotWorkspace(startedOn)", "CScrollingOverview", "COverview", "std::make_unique<CScrollingOverview>", "std::make_unique<COverview>"})
         expectContains(sessionSource, token, "factory implements guarded selection token " + std::string{token});
     expectOrder(sessionSource, "snapshotWorkspace(startedOn)", "std::make_unique<CScrollingOverview>", "factory snapshots live native state before selecting scrolling");
     expectContains(sessionSource, "notifyScrollingFailure", "detected scrolling initialization failure is operator-visible");

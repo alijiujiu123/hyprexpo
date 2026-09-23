@@ -1170,8 +1170,7 @@ COverview::~COverview() {
 //   * the count is whatever exists — the shape follows it (computeDynamicGridShape), there is no
 //     4x3 and no `max_workspace` in this path.
 //
-// Called from the constructor and again after the add card creates a workspace, so a new card
-// appears without tearing the session down (mission control adds a space in place; so do we).
+// Called from the constructor to derive the cards from this monitor's current workspaces.
 void COverview::fillDynamicGrid() {
     static auto* const* PFILLGAPS = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:fill_gaps")->getDataStaticPtr();
     static auto* const* PMRUSORT  = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:mru_sort")->getDataStaticPtr();
@@ -1188,11 +1187,8 @@ void COverview::fillDynamicGrid() {
         // workspace is not a slot to reserve (2026-09-22 — "no windows, no slot", which is also what
         // Hyprland does with an empty, non-persistent workspace once its monitor leaves it). The earlier
         // "persistent means reserved" reading is what left eleven empty workspaces occupying ordinals.
-        // A card is a workspace with windows, the one you are standing on, or the screen's spare — the
-        // single empty workspace every screen keeps at the end (the user's model, 2026-09-22). The spare
-        // is the only workspace the resolver marks persistent, so that signal means "this is a slot"
-        // again, and the last card *is* the new workspace: clicking it is how you add one. Everything
-        // else empty is not a slot at all.
+        // The monitor's persistent empty spare is a real workspace and appears as an ordinary card;
+        // it is not a synthetic "add workspace" slot. Everything else empty is not a slot at all.
         const bool OCCUPIED = workspace->getWindowCount() > 0;
         const bool CURRENT  = workspace->m_id == currentWorkspaceID;
         const bool SPARE    = workspace->isPersistent();
@@ -1223,9 +1219,8 @@ void COverview::fillDynamicGrid() {
         }
     }
 
-    // No add card any more (2026-09-22): the screen's spare — the empty workspace the resolver keeps at
-    // the end — already is the "new workspace", shown as the last card, so a button for it was one
-    // affordance too many.
+    // The screen's persistent empty workspace is already the spare slot; the overview does not add a
+    // separate creation card or button.
     const size_t CARDS = visibleWorkspaceIDs.size();
 
     // At least 2x2, whatever the count: with one tile the "zoom" the open/close animation runs on
@@ -1241,78 +1236,6 @@ void COverview::fillDynamicGrid() {
     lastTileCapture.resize(CARDS, std::chrono::steady_clock::now());
 }
 
-// ---------------------------------------------------------------------------------------------
-// The "+" under the cards
-//
-// An add button, at the user's request: the bar has one after its last number, this is the same thing
-// under the grid, centred. Clicking it creates a workspace on this screen and goes there — the two
-// steps the resolver's `new()` takes (focus the id, which is how Hyprland creates a workspace, then
-// move it here), and the overview closes because the user has moved on to it.
-//
-// Blank workspaces are otherwise not kept: with no persistence involved, Hyprland closes an empty one
-// as soon as its screen moves past it. So the button is the way to make one, not a reserved slot.
-CBox COverview::addButtonBox() const {
-    const auto MON = pMonitor.lock();
-    if (!MON || !size || !pos || images.empty())
-        return {};
-
-    // The overview is a *zoomable canvas*: the whole grid is deliberately larger than the screen (the
-    // camera sits on the focused card), so anything placed "under the last row" is usually off-screen —
-    // which is why the button was clipped in half. It is therefore anchored to the **screen**: its
-    // position is computed in screen units (bottom centre), then mapped back into canvas units, which is
-    // `(screen - pos) / scale` because drawing does `box * scale + pos`. The size stays in canvas units,
-    // and the hit test reads the same box, so the drawn button and the clickable one cannot drift.
-    const auto   SCALE  = MON->m_scale;
-    const auto   TILE   = tileBoxForIndex(0, size->value(), GAP_WIDTH, currentOuterInset(), true);
-    const double SIDE   = std::clamp(TILE.h * 0.22, 24.0, 56.0);          // canvas units
-    const double MARGIN = GAP_WIDTH * 2.0;                                 // canvas units
-
-    const double SCREEN_X = (MON->m_size.x - SIDE * SCALE) / 2.0;          // screen units
-    const double SCREEN_Y = MON->m_size.y - SIDE * SCALE - MARGIN * SCALE;
-
-    return {(SCREEN_X - pos->value().x) / SCALE, (SCREEN_Y - pos->value().y) / SCALE, SIDE, SIDE};
-}
-
-bool COverview::pointerOverAddButton() const {
-    const auto MON = pMonitor.lock();
-    if (!MON || !size || !pos || images.empty())
-        return false;
-
-    const auto BOX = addButtonBox();
-    if (BOX.w <= 0.0 || BOX.h <= 0.0)
-        return false;
-
-    const auto LOCAL = lastMousePosLocal - pos->value() / MON->m_scale;
-    return LOCAL.x >= BOX.x && LOCAL.x <= BOX.x + BOX.w && LOCAL.y >= BOX.y && LOCAL.y <= BOX.y + BOX.h;
-}
-
-bool COverview::handleAddButtonClick() {
-    const auto MON = pMonitor.lock();
-    if (!MON || !pointerOverAddButton())
-        return false;
-
-    // The id: the smallest free one above everything that exists, so it cannot collide with a screen's
-    // rule-pinned band (a screen's own "highest + 1" can — measured: two screens both computed 7).
-    std::vector<int64_t> used;
-    for (const auto& workspace : State::workspaceState()->workspacesCopy())
-        used.push_back(workspace->m_id);
-
-    int64_t id = 1;
-    for (const auto candidate : used)
-        id = std::max(id, candidate + 1);
-
-    // Focusing an id that does not exist yet is how Hyprland creates a workspace, and it lands on the
-    // active monitor — which is this overview's monitor, since the gesture chose the pointer's screen.
-    const auto CHANGE = Config::Actions::changeWorkspace(std::to_string(id));
-    if (!CHANGE) {
-        Log::logger->log(Log::ERR, "[hyprexpo] the + could not create a workspace: {}", CHANGE.error().message);
-        return false;
-    }
-
-    Log::logger->log(Log::INFO, "HYPREXPO_ADD_WORKSPACE id={} monitor={}", id, MON->m_name);
-    close(false);
-    return true;
-}
 
 COverview::COverview(PHLWORKSPACE startedOn_, PHLMONITOR monitor_, bool swipe_, uint64_t sessionGeneration) : startedOn(startedOn_), m_sessionGeneration(sessionGeneration), swipe(swipe_) {
     const auto PMONITOR = monitor_;
@@ -1473,14 +1396,6 @@ COverview::COverview(PHLWORKSPACE startedOn_, PHLMONITOR monitor_, bool swipe_, 
     for (size_t i = 0; i < images.size(); ++i) {
         COverview::SWorkspaceImage& image = images[i];
 
-        if (isAddTile(image)) {
-            // The add card has no workspace behind it: nothing to capture, no surface feedback to
-            // block, and it must never become `currentid` (that is the opened workspace). Its box is
-            // still computed, because the geometry helpers index by tile.
-            image.pWorkspace = nullptr;
-            image.box        = tileBoxForIndex((int)i, pMonitor->m_size, GAP_WIDTH, 0.0, true);
-            continue;
-        }
 
         PHLWORKSPACE PWORKSPACE;
         for (const auto& w : State::workspaceState()->workspacesCopy()) {
@@ -1602,10 +1517,6 @@ COverview::COverview(PHLWORKSPACE startedOn_, PHLMONITOR monitor_, bool swipe_, 
         }
 
 
-        // The "+" under the cards: clicking it makes a workspace and goes there, so it is checked
-        // before the commit path (it is not a card, and there is nothing to select).
-        if (TARGET && TARGET->handleAddButtonClick())
-            return;
 
         if (TARGET && TARGET->selectHoveredWorkspace())
             closeOverviewsSelecting(TARGET);
