@@ -1,6 +1,7 @@
 #include "AppIcons.hpp"
 
 #include "globals.hpp"
+#include "HyprlandConfigCompat.hpp"
 #include "HyprexpoLogic.hpp"
 #include <hyprland/src/desktop/state/WindowState.hpp>
 #include <hyprland/src/desktop/view/Window.hpp>
@@ -268,8 +269,9 @@ namespace {
     std::optional<Clock::time_point> g_themeCheckedAt;
 
     std::string currentThemeName() {
-        static auto const* PTHEME = (Hyprlang::STRING const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:label_icon_theme")->getDataStaticPtr();
-        if (const std::string configured = trim(std::string{*PTHEME}); !configured.empty())
+        // Through the compat shim like every string key: under a Lua config the raw API's data
+        // pointer for a string is not a `const char*` (it crashed the live session, 2026-09-25).
+        if (const std::string configured = trim(std::string{CompatHyprlandAPI::stringValue("plugin:hyprexpo:label_icon_theme")}); !configured.empty())
             return configured;
 
         // Omarchy's theme switcher writes the icon theme it sets through gsettings here.

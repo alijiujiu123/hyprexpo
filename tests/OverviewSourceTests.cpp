@@ -84,6 +84,12 @@ int main() {
     expect(lifecycleSource.find("m_events.monitor.removed.listen") != std::string::npos &&
                lifecycleSource.find("destroyOverview(OV);") != std::string::npos,
            "disconnecting an output unregisters its overview without waiting for a frame on that output");
+    // AppIcons.cpp has no `#define HyprlandAPI CompatHyprlandAPI`: a raw string read there returned a
+    // bogus pointer under the Lua config and took the live session down (2026-09-25).
+    const auto appIconsSource = readFile("src/AppIcons.cpp");
+    expect(appIconsSource.find("HyprlandAPI::getConfigValue") == std::string::npos &&
+               appIconsSource.find("CompatHyprlandAPI::stringValue(\"plugin:hyprexpo:label_icon_theme\")") != std::string::npos,
+           "the app-icon code reads its config through the compat shim, never the raw API");
     const auto source = readFile("src/Overview.cpp");
     const auto overviewHeader = readFile("src/Overview.hpp");
     expect(!source.empty(), "src/Overview.cpp can be read from repo root");
