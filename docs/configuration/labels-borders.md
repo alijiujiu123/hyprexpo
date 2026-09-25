@@ -85,6 +85,22 @@ Omarchy's web apps) matches the window class, then its `Icon=` through the icon 
 and `/usr/share/pixmaps`. The icon is drawn without the background bubble, at `label_position`
 and `label_offset_x/y`. A card with no windows, or whose app has no icon, keeps its text label.
 
+### Reordering cards
+
+With `drag_drop_enable = 1` on the dynamic grid (and `mru_sort = 0`), pressing a card's badge (the
+app icon, or the text label of an empty card) and dragging picks up the **whole card**; pressing
+anywhere else on a card still drags a single window. Dropping the card on another slot reorders:
+the dragged card lands in that slot and the cards in between shift by one. A plain click on the
+badge still selects the card.
+
+A slot is a workspace, and workspace ids cannot change, so the reorder moves **windows**: the
+dragged workspace's windows move into the target slot's workspace and every workspace in between
+passes its windows one slot along. Anything that orders workspaces by id (keybinds, bars, this grid)
+therefore agrees with the new order without any stored state. Fullscreen state and window groups
+move with their windows, and the app-icon badge keeps each workspace's first-opened window. Your
+current workspace keeps its id: if its slot's contents change, that is what you see after closing.
+Reordering never crosses monitors.
+
 ## Selection Labels
 
 Selection labels are optional overlays used by `hyprexpo:kb_select`. They let normal workspace labels stay stable while selection tokens use a separate map.

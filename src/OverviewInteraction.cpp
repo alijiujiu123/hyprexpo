@@ -4,6 +4,7 @@
 #include "OverviewInternal.hpp"
 #include "GestureMomentum.hpp"
 #include "HyprexpoLogic.hpp"
+#include "AppIcons.hpp"
 #include <hyprland/src/Compositor.hpp>
 #include <hyprland/src/config/ConfigValue.hpp>
 #include <hyprland/src/desktop/state/GlobalWindowController.hpp>
@@ -13,6 +14,7 @@
 #include <hyprland/src/managers/eventLoop/EventLoopManager.hpp>
 #include <hyprland/src/managers/KeybindManager.hpp>
 #include <hyprland/src/state/WorkspaceState.hpp>
+#include <hyprland/src/managers/fullscreen/FullscreenController.hpp>
 #include <hyprland/src/config/shared/actions/ConfigActions.hpp>
 #include <algorithm>
 #include <chrono>
@@ -422,6 +424,157 @@ bool COverview::moveWindowBetweenVisibleIndices(size_t sourceIndex, size_t targe
     settleWorkspaceMoveAnimation(window);
     redrawDraggedWorkspace(SOURCEWORKSPACEID);
     redrawDraggedWorkspace(TARGETWORKSPACEID);
+    return true;
+}
+
+// ---- card reorder ----------------------------------------------------------------------------
+//
+// A card's position *is* its workspace's ordinal on this screen (rank by id, the kit's address
+// model), and a workspace id cannot change. So a reorder moves the windows: dropping card `from` on
+// slot `to` moves `from`'s windows into `to`'s workspace and shifts the ones in between by one
+// (Hyprexpo::planCardReorder). Ids, SUPER+N, the bar and this grid keep agreeing without any stored
+// order. The active workspace keeps its id - switching it while the overview is open closes the
+// overview (onWorkspaceChange) - so you stay in your slot and its contents may change.
+
+bool COverview::cardReorderAvailable() const {
+    static auto* const* PMRUSORT = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:mru_sort")->getDataStaticPtr();
+    // Only the dynamic grid lists this screen's workspaces in id order; mru_sort breaks that order.
+    return dynamicGrid && !**PMRUSORT && !closing;
+}
+
+bool COverview::beginCardDrag() {
+    const auto MON = pMonitor.lock();
+    if (!MON || cardDrag.active || !cardReorderAvailable())
+        return false;
+
+    const Vector2D LOCAL = g_pInputManager->getMouseCoordsInternal() - MON->m_position;
+    const Vector2D POINT = LOCAL - pos->value() / MON->m_scale; // tile space, like updateHoveredFromMouse
+    constexpr double SLOP = 6.0;                                // badges are small; forgive a near miss
+
+    for (size_t id = 0; id < badgeBoxes.size() && id < images.size(); ++id) {
+        const auto& box = badgeBoxes[id];
+        if (box.w <= 0 || !isTileValid((int)id))
+            continue;
+        if (POINT.x < box.x - SLOP || POINT.x > box.x + box.w + SLOP || POINT.y < box.y - SLOP || POINT.y > box.y + box.h + SLOP)
+            continue;
+
+        const auto TILE     = tileBoxForIndex((int)id, size->value(), GAP_WIDTH, currentOuterInset(), true);
+        cardDrag            = {};
+        cardDrag.active     = true;
+        cardDrag.source     = (int)id;
+        cardDrag.target     = (int)id;
+        cardDrag.pressLocal = POINT;
+        cardDrag.pointerLocal = POINT;
+        cardDrag.grabOffset = POINT - Vector2D{TILE.x, TILE.y};
+        Pointer::Cursor::overrideController->setOverride("grabbing", Pointer::Cursor::CURSOR_OVERRIDE_UNKNOWN);
+        damage();
+        return true;
+    }
+    return false;
+}
+
+void COverview::updateCardDrag() {
+    const auto MON = pMonitor.lock();
+    if (!MON || !cardDrag.active)
+        return;
+
+    const Vector2D POINT = g_pInputManager->getMouseCoordsInternal() - MON->m_position - pos->value() / MON->m_scale;
+    cardDrag.pointerLocal = POINT;
+    if (!cardDrag.moved && std::hypot(POINT.x - cardDrag.pressLocal.x, POINT.y - cardDrag.pressLocal.y) < 12.0)
+        return;
+    cardDrag.moved = true;
+
+    // Nothing crosses screens: a pointer off this grid (or on another monitor) has no target.
+    const int HIT   = tileIndexAtPoint(POINT, size->value(), GAP_WIDTH, currentOuterInset(), true);
+    cardDrag.target = isTileValid(HIT) ? HIT : -1;
+    damage();
+}
+
+bool COverview::finishCardDrag() {
+    if (!cardDrag.active)
+        return false;
+
+    const auto DRAG = cardDrag;
+    cardDrag        = {};
+    Pointer::Cursor::overrideController->setOverride("left_ptr", Pointer::Cursor::CURSOR_OVERRIDE_UNKNOWN);
+    damage();
+
+    const auto MON = pMonitor.lock();
+    if (!DRAG.moved)
+        return false; // a click on the badge is a click on the card
+    if (!MON || closing || !isTileValid(DRAG.source) || !isTileValid(DRAG.target) || DRAG.source == DRAG.target)
+        return true;
+
+    const auto MOVES = Hyprexpo::planCardReorder(images.size(), (size_t)DRAG.source, (size_t)DRAG.target);
+    for (const auto& move : MOVES) {
+        if (!isTileValid((int)move.source) || !isTileValid((int)move.destination))
+            return true;
+    }
+
+    auto workspaceByID = [&](int64_t id) -> PHLWORKSPACE {
+        for (const auto& workspace : State::workspaceState()->workspacesCopy()) {
+            if (workspace && workspace->m_id == id && !workspace->inert())
+                return workspace;
+        }
+        return nullptr;
+    };
+
+    // Snapshot every slot's windows (and its first-opened window) before anything moves: the plan
+    // moves each slot's *original* contents, whatever has landed there in the meantime.
+    std::vector<std::vector<PHLWINDOW>> contents(images.size());
+    std::vector<PHLWINDOW>              anchors(images.size());
+    // The first move lands in a slot that still holds its own windows, so two fullscreen windows can
+    // meet there for a moment and one loses its state (seen in the sandbox: the displaced window
+    // arrived at its new slot tiled). Each moved window gets its modes back afterwards.
+    std::vector<std::pair<PHLWINDOW, Fullscreen::SFullscreenMode>> fullscreenModes;
+    for (const auto& move : MOVES) {
+        const auto ID        = images[move.source].workspaceID;
+        const auto WORKSPACE = workspaceByID(ID);
+        anchors[move.source] = Hyprexpo::AppIcons::anchorWindow(ID);
+        if (!WORKSPACE)
+            continue;
+        for (const auto& window : Desktop::windowState()->windows()) {
+            if (!windowVisibleOnWorkspace(window, WORKSPACE))
+                continue;
+            contents[move.source].push_back(window);
+            fullscreenModes.emplace_back(window, Fullscreen::controller()->getFullscreenModes(window));
+        }
+    }
+
+    for (const auto& move : MOVES) {
+        const auto ID = images[move.destination].workspaceID;
+        // A slot emptied by an earlier move may already be gone: Hyprland drops an empty workspace
+        // its monitor is not showing. Recreate it on this screen, under the same id.
+        auto destination = workspaceByID(ID);
+        if (!destination)
+            destination = State::workspaceState()->create(ID, MON->m_id, std::to_string(ID), false);
+        if (!destination || destination->m_monitor.lock() != MON) {
+            Log::logger->log(Log::ERR, "[hyprexpo] card reorder: workspace {} is not on this monitor, stopping", ID);
+            break;
+        }
+        for (const auto& window : contents[move.source]) {
+            if (!window || !window->m_isMapped)
+                continue;
+            Desktop::globalWindowController()->moveWindowToWorkspace(window, destination);
+            settleWorkspaceMoveAnimation(window);
+        }
+        Hyprexpo::AppIcons::setAnchorWindow(ID, anchors[move.source]);
+    }
+
+    for (const auto& [window, modes] : fullscreenModes) {
+        if (!window || !window->m_isMapped)
+            continue;
+        const auto NOW = Fullscreen::controller()->getFullscreenModes(window);
+        if (NOW.internal != modes.internal || NOW.client != modes.client)
+            Fullscreen::controller()->setFullscreenMode(window, modes.internal, modes.client);
+    }
+
+    images[DRAG.source].pWorkspace.reset();
+    for (const auto& move : MOVES) {
+        images[move.destination].pWorkspace = workspaceByID(images[move.destination].workspaceID);
+        redrawDraggedWorkspace(images[move.destination].workspaceID);
+    }
+    Log::logger->log(Log::INFO, "[hyprexpo] card reorder: slot {} -> {} ({} moves)", DRAG.source, DRAG.target, MOVES.size());
     return true;
 }
 

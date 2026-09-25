@@ -123,8 +123,8 @@ int main() {
            "drag/drop enable configuration is registered");
     expect(source.find("plugin:hyprexpo:drag_drop_enable") != std::string::npos,
            "drag/drop enable configuration has a compatibility default");
-    expect(source.find("if (**PDRAGDROPENABLE && TARGET)\n                TARGET->beginWindowDrag();") != std::string::npos,
-           "drag/drop enable configuration gates drag start");
+    expect(source.find("if (**PDRAGDROPENABLE && TARGET && !TARGET->beginCardDrag())\n                TARGET->beginWindowDrag();") != std::string::npos,
+           "drag/drop enable configuration gates drag start (card drag from the badge first, else a window)");
     expect(source.find("if (**PDRAGDROPENABLE && SOURCE)") != std::string::npos && source.find("SOURCE->finishWindowDrag()") != std::string::npos,
            "drag/drop enable configuration gates drag completion");
 

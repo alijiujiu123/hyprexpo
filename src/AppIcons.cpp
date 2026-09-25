@@ -444,6 +444,18 @@ void onConfigReload() {
     g_themeChecked.clear();
 }
 
+PHLWINDOW anchorWindow(WORKSPACEID workspace) {
+    const auto IT = g_anchors.find(workspace);
+    return IT == g_anchors.end() ? nullptr : IT->second.lock();
+}
+
+void setAnchorWindow(WORKSPACEID workspace, const PHLWINDOW& window) {
+    if (window)
+        g_anchors[workspace] = window;
+    else
+        g_anchors.erase(workspace);
+}
+
 PHLWINDOW primaryWindow(WORKSPACEID workspace) {
     if (workspace == WORKSPACE_INVALID)
         return nullptr;

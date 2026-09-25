@@ -25,6 +25,11 @@ namespace Hyprexpo::AppIcons {
 
     PHLWINDOW            primaryWindow(WORKSPACEID workspace);
 
+    // The recorded first-opened window of a workspace (null when none is alive), and a way to put it
+    // back after a card reorder moved a workspace's windows under another id.
+    PHLWINDOW            anchorWindow(WORKSPACEID workspace);
+    void                 setAnchorWindow(WORKSPACEID workspace, const PHLWINDOW& window);
+
     // A square texture of `px` pixels, or null when the class has no icon anywhere. Resolved paths
     // and textures are cached; call from the render thread (it may create a texture).
     SP<Render::ITexture> iconTexture(const std::string& appClass, int px);

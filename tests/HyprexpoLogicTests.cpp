@@ -1250,6 +1250,45 @@ int main() {
         expect(Hyprexpo::webAppClassFromUrl("/usr/bin/kitty").empty(), "no URL, no web app class");
     }
 
+    {
+        // Simulate the plan on slot contents: the result must be "remove from, insert at to", and
+        // every destination but the first must be empty when its move runs.
+        auto apply = [](std::vector<std::string> slots, size_t from, size_t to, bool& onlyFirstOverlaps) {
+            std::vector<std::vector<std::string>> held(slots.size());
+            for (size_t i = 0; i < slots.size(); ++i)
+                held[i] = {slots[i]};
+            const auto MOVES  = Hyprexpo::planCardReorder(slots.size(), from, to);
+            onlyFirstOverlaps = true;
+            std::vector<std::string> moving;
+            for (size_t i = 0; i < MOVES.size(); ++i) {
+                // the source's *original* contents move, whatever else has landed there meanwhile
+                auto& src = held[MOVES[i].source];
+                auto  it  = std::find(src.begin(), src.end(), slots[MOVES[i].source]);
+                if (it == src.end())
+                    return std::vector<std::string>{};
+                src.erase(it);
+                if (i > 0 && !held[MOVES[i].destination].empty())
+                    onlyFirstOverlaps = false;
+                held[MOVES[i].destination].push_back(slots[MOVES[i].source]);
+            }
+            std::vector<std::string> out;
+            for (const auto& h : held)
+                out.push_back(h.size() == 1 ? h[0] : "?");
+            return out;
+        };
+
+        bool       clean = false;
+        const auto FWD   = apply({"a", "b", "c", "d", "e"}, 1, 3, clean);
+        expect(FWD == std::vector<std::string>{"a", "c", "d", "b", "e"} && clean, "dragging a card forward shifts the cards in between back by one");
+        const auto BACK = apply({"a", "b", "c", "d", "e"}, 4, 0, clean);
+        expect(BACK == std::vector<std::string>{"e", "a", "b", "c", "d"} && clean, "dragging a card backward shifts the cards in between forward by one");
+        const auto NEIGHBOURS = apply({"a", "b"}, 0, 1, clean);
+        expect(NEIGHBOURS == std::vector<std::string>{"b", "a"} && clean, "neighbours swap");
+        expect(Hyprexpo::planCardReorder(3, 1, 1).empty(), "dropping a card on itself moves nothing");
+        expect(Hyprexpo::planCardReorder(3, 0, 3).empty(), "a slot past the end moves nothing");
+        expect(Hyprexpo::planCardReorder(5, 1, 3).size() == 3, "one move per slot whose contents change");
+    }
+
     if (failures != 0)
         return 1;
 

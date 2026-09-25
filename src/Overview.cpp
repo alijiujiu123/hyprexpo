@@ -1483,6 +1483,11 @@ COverview::COverview(PHLWORKSPACE startedOn_, PHLMONITOR monitor_, bool swipe_, 
 
         if (auto* const SOURCE = gridOverviewForMonitorKey(g_overviewDrag.state.sourceMonitorKey))
             SOURCE->updateWindowDrag();
+
+        for (const auto& session : g_overviews) {
+            if (auto* const OV = dynamic_cast<COverview*>(session.get()); OV && OV->cardDrag.active)
+                OV->updateCardDrag();
+        }
     };
 
     auto onCursorSelect = [this](const IPointer::SButtonEvent& event, Event::SCallbackInfo& info) {
@@ -1509,9 +1514,18 @@ COverview::COverview(PHLWORKSPACE startedOn_, PHLMONITOR monitor_, bool swipe_, 
         }
 
         if (event.state == WL_POINTER_BUTTON_STATE_PRESSED) {
-            if (**PDRAGDROPENABLE && TARGET)
+            // The badge picks up the whole card; anywhere else on the card picks up a window.
+            if (**PDRAGDROPENABLE && TARGET && !TARGET->beginCardDrag())
                 TARGET->beginWindowDrag();
             return;
+        }
+
+        for (const auto& session : g_overviews) {
+            auto* const OV = dynamic_cast<COverview*>(session.get());
+            if (!OV || !OV->cardDrag.active)
+                continue;
+            if (OV->finishCardDrag())
+                return;
         }
 
         if (**PDRAGDROPENABLE && SOURCE) {

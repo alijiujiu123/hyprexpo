@@ -727,6 +727,16 @@ void COverview::fullRender() {
         if (!std::string{*PTOKENMAP}.empty())
             labelTokens = splitCommaList(std::string{*PTOKENMAP});
 
+        // Badge hit-boxes for the card drag, in the tile space updateHoveredFromMouse uses:
+        // render box = logical * scale + pos, so logical = (render - pos) / scale.
+        badgeBoxes.assign(images.size(), CBox{});
+        auto recordBadge = [&](size_t id, const CBox& box) {
+            if (box.w <= 0 || id >= badgeBoxes.size())
+                return;
+            const auto POS  = pos->value();
+            badgeBoxes[id]  = CBox{(box.x - POS.x) / MON->m_scale, (box.y - POS.y) / MON->m_scale, box.w / MON->m_scale, box.h / MON->m_scale};
+        };
+
         int tokenCounter = 0;
         for (size_t id = 0; id < images.size(); ++id) {
             const auto& image = images[id];
@@ -777,6 +787,7 @@ void COverview::fullRender() {
                 if (appIcon) {
                     Vector2D   iconSize = appIcon->m_size;
                     const CBox ICONBOX  = renderLabel(appIcon, iconSize, "icon", CHyprColor{}, 1.0f, tile, labelAnchor, **PLABELOX, **PLABELOY, labelFontSize, false);
+                    recordBadge(id, ICONBOX);
                     // dirty_debug: the live marker a text label shows by turning red.
                     if (LIVE && ICONBOX.w > 0) {
                         const double DOT = std::max(6.0, ICONBOX.w / 4.0);
@@ -790,7 +801,7 @@ void COverview::fullRender() {
                     const uint64_t COL = LIVE ? 0xFFFF2222 : (uint64_t)(NUM ? **PWSNUMCOL : st == 1 ? **PLCOLHOV : st == 2 ? **PLCOLFOC : st == 3 ? **PLCOLCUR : **PLCOLDEF);
                     const float  SCALE = (!NUM && st == 1) ? **PLSCALEH : (!NUM && st == 2) ? **PLSCALEF : 1.0f;
 
-                    renderLabel(TEX, SZ, label, CHyprColor{COL}, SCALE, tile, labelAnchor, **PLABELOX, **PLABELOY, labelFontSize);
+                    recordBadge(id, renderLabel(TEX, SZ, label, CHyprColor{COL}, SCALE, tile, labelAnchor, **PLABELOX, **PLABELOY, labelFontSize));
                 }
             }
 
@@ -870,6 +881,26 @@ void COverview::fullRender() {
                     effectiveSpec = std::string{*PBGREFOC};
                 drawProxyBorder(proxy, round, borderWidth, effectiveSpec, std::string{*PBGREFOC});
             }
+        }
+    }
+
+    // Card drag: the source slot is dimmed, the slot it would land in is outlined, and a copy of the
+    // card follows the pointer, held where it was grabbed.
+    if (cardDrag.active && cardDrag.moved && isTileValid(cardDrag.source) && cardDrag.source < (int)tileBoxes.size()) {
+        const CBox& SOURCEBOX = tileBoxes[cardDrag.source];
+        Render::GL::g_pHyprOpenGL->renderRect(SOURCEBOX, CHyprColor{BG_COLOR.r, BG_COLOR.g, BG_COLOR.b, 0.6}, {.round = BASE_ROUND_SCALED, .roundingPower = ROUND_PWR});
+
+        if (cardDrag.target != -1 && cardDrag.target != cardDrag.source)
+            drawBorderForID(cardDrag.target, std::string{*PBCOLFOC}, std::string{*PBGREFOC}, RND_FOC, std::max(2, (int)**PBWIDTH + 1));
+
+        if (images[cardDrag.source].fb) {
+            const Vector2D TOPLEFT = cardDrag.pointerLocal - cardDrag.grabOffset;
+            CBox           lifted{TOPLEFT.x * MON->m_scale + pos->value().x, TOPLEFT.y * MON->m_scale + pos->value().y, SOURCEBOX.w, SOURCEBOX.h};
+            lifted.round();
+            CRegion liftedDamage{0, 0, INT16_MAX, INT16_MAX};
+            Render::GL::g_pHyprOpenGL->renderTextureInternal(images[cardDrag.source].fb->getTexture(), lifted,
+                                                             {.damage = &liftedDamage, .a = 0.9F, .round = BASE_ROUND_SCALED, .roundingPower = ROUND_PWR});
+            drawProxyBorder(lifted, BASE_ROUND_SCALED, std::max(2, (int)**PBWIDTH + 1), std::string{*PBCOLFOC}, std::string{*PBGREFOC});
         }
     }
 

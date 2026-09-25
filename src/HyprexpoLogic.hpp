@@ -250,6 +250,18 @@ struct SPrimaryWindowCandidate {
 // hidden windows only when nothing is visible). 0 = the workspace has no window.
 uint64_t                 choosePrimaryWindow(std::optional<uint64_t> anchor, const std::vector<SPrimaryWindowCandidate>& candidates);
 
+// Dragging card `from` onto slot `to` reorders the cards: the dragged card's contents land in slot
+// `to` and every card in between shifts one slot toward `from`. Slots are workspaces, whose ids never
+// change - their *contents* (windows) move. Returns the moves in execution order as
+// {source slot, destination slot}, one per slot whose contents change. The first move (the dragged
+// contents into `to`) is the only one whose destination is still occupied when it runs; every later
+// destination has just been vacated by the move before it. Empty for from == to or out of range.
+struct SSlotMove {
+    size_t source      = 0;
+    size_t destination = 0;
+};
+std::vector<SSlotMove>   planCardReorder(size_t count, size_t from, size_t to);
+
 // The Wayland app id Chromium gives a `--app=<url>` window (Omarchy's web apps):
 // "https://x.com/" -> "chrome-x.com__-Default". Empty when the text holds no http(s) URL.
 std::string              webAppClassFromUrl(std::string_view url);

@@ -806,4 +806,20 @@ std::string webAppClassFromUrl(std::string_view text) {
     return "chrome-" + name + "-Default";
 }
 
+std::vector<SSlotMove> planCardReorder(size_t count, size_t from, size_t to) {
+    std::vector<SSlotMove> moves;
+    if (from == to || from >= count || to >= count)
+        return moves;
+
+    moves.push_back({.source = from, .destination = to});
+    if (from < to) {
+        for (size_t slot = from + 1; slot <= to; ++slot)
+            moves.push_back({.source = slot, .destination = slot - 1});
+    } else {
+        for (size_t slot = from; slot-- > to;)
+            moves.push_back({.source = slot, .destination = slot + 1});
+    }
+    return moves;
+}
+
 }

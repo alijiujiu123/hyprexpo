@@ -148,6 +148,11 @@ class COverview final : public IOverviewSession {
     bool       finishWindowDrag();
     void       updateWindowDrag();
     void       redrawDraggedWorkspace(int64_t workspaceID);
+    // Card reorder: press on a card's badge and drag the whole card to another slot (dynamic grid).
+    bool       beginCardDrag();
+    void       updateCardDrag();
+    bool       finishCardDrag();
+    bool       cardReorderAvailable() const;
     void       queueRedrawID(int id);
     void       flushQueuedRedraws();
     // Recaptures the tiles whose workspaces changed since the previous frame, newest first,
@@ -193,6 +198,20 @@ class COverview final : public IOverviewSession {
     std::chrono::steady_clock::time_point     dirtyLogTime{};
 
     std::vector<SWorkspaceImage> images;
+
+    // Where each tile's badge (icon or text label) was last drawn, monitor-local logical coordinates;
+    // an empty box = no badge. Written by the renderer, read by the card-drag hit test.
+    std::vector<CBox>            badgeBoxes;
+
+    struct SCardDrag {
+        bool     active = false;
+        bool     moved  = false;
+        int      source = -1;
+        int      target = -1;
+        Vector2D pressLocal;   // monitor-local logical
+        Vector2D pointerLocal; // monitor-local logical
+        Vector2D grabOffset;   // pointer minus the card's top-left at press, logical
+    } cardDrag;
 
 
     // Re-derives the dynamic grid from this monitor's workspaces and sizes `images` (and the per-tile
