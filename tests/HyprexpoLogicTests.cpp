@@ -1231,6 +1231,25 @@ int main() {
         expect(SUBSTRING.command == "install", "non-qualifier command is unchanged");
     }
 
+    {
+        using Hyprexpo::SPrimaryWindowCandidate;
+        const std::vector<SPrimaryWindowCandidate> WINDOWS = {{.id = 10, .area = 100.0}, {.id = 12, .area = 400.0}, {.id = 11, .area = 400.0}};
+        expect(Hyprexpo::choosePrimaryWindow(10, WINDOWS) == 10, "the first-opened window stays primary while it is there, however small");
+        expect(Hyprexpo::choosePrimaryWindow(9, WINDOWS) == 11, "a closed anchor falls back to the largest window, the older one on a tie");
+        expect(Hyprexpo::choosePrimaryWindow(std::nullopt, WINDOWS) == 11, "no anchor behaves like a closed one");
+        expect(Hyprexpo::choosePrimaryWindow(std::nullopt, {}) == 0, "an empty workspace has no primary window");
+
+        const std::vector<SPrimaryWindowCandidate> HIDDEN = {{.id = 3, .area = 900.0, .visible = false}, {.id = 4, .area = 10.0}};
+        expect(Hyprexpo::choosePrimaryWindow(std::nullopt, HIDDEN) == 4, "a visible window beats a larger hidden one");
+        expect(Hyprexpo::choosePrimaryWindow(3, HIDDEN) == 3, "a hidden anchor (grouped tab) is still the first-opened app");
+
+        expect(Hyprexpo::webAppClassFromUrl("omarchy-launch-webapp https://x.com/") == "chrome-x.com__-Default", "web app root URL");
+        expect(Hyprexpo::webAppClassFromUrl("omarchy-launch-webapp https://youtube.com/") == "chrome-youtube.com__-Default", "second web app root URL");
+        expect(Hyprexpo::webAppClassFromUrl("omarchy-launch-webapp \"https://app.hey.com/imbox?x=1\"") == "chrome-app.hey.com__imbox-Default", "path slashes become underscores, query dropped");
+        expect(Hyprexpo::webAppClassFromUrl("https://example.com") == "chrome-example.com__-Default", "no path parses as the root path");
+        expect(Hyprexpo::webAppClassFromUrl("/usr/bin/kitty").empty(), "no URL, no web app class");
+    }
+
     if (failures != 0)
         return 1;
 

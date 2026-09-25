@@ -5,6 +5,7 @@
 #include "OverviewCapture.hpp"
 #include "HyprexpoLogic.hpp"
 #include "OverviewPassElement.hpp"
+#include "AppIcons.hpp"
 #define private   public
 #define protected public
 #include <hyprland/src/Compositor.hpp>
@@ -502,6 +503,8 @@ void COverview::fullRender() {
     static auto* const* PLBGROUND   = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:label_bg_rounding")->getDataStaticPtr();
     static auto const*  PLBGSHAPE   = (Hyprlang::STRING const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:label_bg_shape")->getDataStaticPtr();
     static auto* const* PLBGPAD     = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:label_padding")->getDataStaticPtr();
+    static auto* const* PLABELAPPICON  = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:label_app_icon")->getDataStaticPtr();
+    static auto* const* PLABELICONSIZE = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:label_icon_size")->getDataStaticPtr();
 
     static auto* const* PBWIDTH     = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:border_width")->getDataStaticPtr();
     static auto const*  PBCOLCUR    = (Hyprlang::STRING const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:border_color_current")->getDataStaticPtr();
@@ -551,10 +554,12 @@ void COverview::fullRender() {
         return std::to_string(image.workspaceID);
     };
 
+    // Returns where the label landed (an empty box when nothing was drawn). `allowBG = false` draws
+    // the texture bare - an app icon brings its own shape and needs no badge behind it.
     auto renderLabel = [&](SP<Render::ITexture>& tex, Vector2D& sz, const std::string& label, const CHyprColor& col, float scaleMul, const CBox& tile, const std::string& anchor,
-                           int offsetX, int offsetY, int fontSize) {
+                           int offsetX, int offsetY, int fontSize, bool allowBG = true) -> CBox {
         if (label.empty())
-            return;
+            return {};
 
         const int baseF = std::max(8, fontSize);
         if (!tex || tex->m_texID == 0) {
@@ -565,7 +570,7 @@ void COverview::fullRender() {
         }
 
         if (!tex || tex->m_texID == 0)
-            return;
+            return {};
 
         static auto* const* PLPIXELSNAP = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:label_pixel_snap")->getDataStaticPtr();
 
@@ -608,6 +613,7 @@ void COverview::fullRender() {
             }
             Render::GL::g_pHyprOpenGL->renderRect(bg, CHyprColor{(uint64_t)**PLBGCOL}, {.round = roundPx});
             Render::GL::g_pHyprOpenGL->renderTexture(tex, lb, {.a = 1.0});
+            return lb;
         };
 
         auto drawNoBG = [&]() {
@@ -615,12 +621,12 @@ void COverview::fullRender() {
             if (**PLPIXELSNAP)
                 lb.round();
             Render::GL::g_pHyprOpenGL->renderTexture(tex, lb, {.a = 1.0});
+            return lb;
         };
 
-        if (**PLBGEN)
-            drawWithBG();
-        else
-            drawNoBG();
+        if (allowBG && **PLBGEN)
+            return drawWithBG();
+        return drawNoBG();
     };
 
     auto drawBorderForID = [&](int id, const std::string& borderSpec, const std::string& deprecatedGradSpec, int roundScaled, int borderWidthOverride = -1) {
@@ -758,7 +764,26 @@ void COverview::fullRender() {
                 const bool LIVE = **PDIRTYDEBUG && id < (int)lastTileCapture.size() &&
                     std::chrono::steady_clock::now() - lastTileCapture[id] < std::chrono::milliseconds(500);
 
-                if (!label.empty()) {
+                // label_app_icon: the card's primary app replaces the text. An empty workspace has
+                // no app and keeps its text label, so every card still carries a badge.
+                SP<Render::ITexture> appIcon;
+                if (**PLABELAPPICON) {
+                    if (const auto PRIMARY = Hyprexpo::AppIcons::primaryWindow(image.workspaceID)) {
+                        const int ICONPX = std::max(8, (int)std::lround((**PLABELICONSIZE > 0 ? **PLABELICONSIZE : labelFontSize) * MON->m_scale));
+                        appIcon          = Hyprexpo::AppIcons::iconTexture(PRIMARY->m_class.empty() ? PRIMARY->m_initialClass : PRIMARY->m_class, ICONPX);
+                    }
+                }
+
+                if (appIcon) {
+                    Vector2D   iconSize = appIcon->m_size;
+                    const CBox ICONBOX  = renderLabel(appIcon, iconSize, "icon", CHyprColor{}, 1.0f, tile, labelAnchor, **PLABELOX, **PLABELOY, labelFontSize, false);
+                    // dirty_debug: the live marker a text label shows by turning red.
+                    if (LIVE && ICONBOX.w > 0) {
+                        const double DOT = std::max(6.0, ICONBOX.w / 4.0);
+                        Render::GL::g_pHyprOpenGL->renderRect(CBox{ICONBOX.x + ICONBOX.w - DOT * 0.75, ICONBOX.y + ICONBOX.h - DOT * 0.75, DOT, DOT}, CHyprColor{0xFFFF2222},
+                                                              {.round = (int)std::lround(DOT / 2.0)});
+                    }
+                } else if (!label.empty()) {
                     const bool   NUM   = showWorkspaceNumbers;
                     auto&        TEX   = LIVE ? images[id].labelTexLive : (NUM ? images[id].labelTexDefault : st == 1 ? images[id].labelTexHover : st == 2 ? images[id].labelTexFocus : st == 3 ? images[id].labelTexCurrent : images[id].labelTexDefault);
                     auto&        SZ    = LIVE ? images[id].labelSizeLive : (NUM ? images[id].labelSizeDefault : st == 1 ? images[id].labelSizeHover : st == 2 ? images[id].labelSizeFocus : st == 3 ? images[id].labelSizeCurrent : images[id].labelSizeDefault);

@@ -178,6 +178,11 @@ void registerHyprexpoConfigValues() {
     addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:label_pixel_snap", "label pixel snap", HyprexpoConfig::LABEL_PIXEL_SNAP_DEFAULT));
     addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:label_center_adjust_x", "label center adjust x", HyprexpoConfig::LABEL_CENTER_ADJUST_X_DEFAULT));
     addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:label_center_adjust_y", "label center adjust y", HyprexpoConfig::LABEL_CENTER_ADJUST_Y_DEFAULT));
+    addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:label_app_icon", "show the workspace's primary app icon instead of the text label",
+                                                         HyprexpoConfig::LABEL_APP_ICON_DEFAULT, Config::Values::SIntValueOptions{.min = 0, .max = 1}));
+    addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:label_icon_size", "app icon size in logical px (0 = label font size)",
+                                                         HyprexpoConfig::LABEL_ICON_SIZE_DEFAULT, Config::Values::SIntValueOptions{.min = 0, .max = 512}));
+    addConfigValue(makeShared<Config::Values::CStringValue>("plugin:hyprexpo:label_icon_theme", "icon theme for app icons (empty = Omarchy's current)", HyprexpoConfig::LABEL_ICON_THEME_DEFAULT));
     addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:gaps_out", "outer gaps", HyprexpoConfig::GAPS_OUT_DEFAULT));
     // Deprecated: use border_color_* instead (supports both solid and gradient)
     addConfigValue(makeShared<Config::Values::CStringValue>("plugin:hyprexpo:border_grad_current", "current border gradient", HyprexpoConfig::BORDER_GRAD_CURRENT_DEFAULT));

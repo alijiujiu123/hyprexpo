@@ -155,6 +155,13 @@ inline constexpr int         LABEL_TEXT_STRIKETHROUGH_DEFAULT = 0;
 inline constexpr int         LABEL_PIXEL_SNAP_DEFAULT        = 1;
 inline constexpr int         LABEL_CENTER_ADJUST_X_DEFAULT   = 0;
 inline constexpr int         LABEL_CENTER_ADJUST_Y_DEFAULT   = 0;
+// 1 = a card whose workspace has windows shows its primary app's icon in place of the text label
+// (the first-opened window, else the largest one); an empty card keeps the text.
+inline constexpr int         LABEL_APP_ICON_DEFAULT          = 0;
+// icon edge in logical px (0 = the label font size)
+inline constexpr int         LABEL_ICON_SIZE_DEFAULT         = 0;
+// icon theme to search before hicolor ("" = Omarchy's current one)
+inline constexpr const char* LABEL_ICON_THEME_DEFAULT        = "";
 inline constexpr int         TILE_ROUNDING_DEFAULT           = 0;
 inline constexpr float       TILE_ROUNDING_POWER_DEFAULT     = 2.0F;
 inline constexpr int         TILE_ROUNDING_FOCUS_DEFAULT     = -1;

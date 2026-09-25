@@ -237,6 +237,23 @@ std::string              resolveBorderSpec(const std::string& modernSpec, const 
 std::string              resolveLabelPosition(const std::string& modernValue, bool modernSetByUser, const std::string& legacyValue, bool legacySetByUser);
 int                      resolveLabelFontSize(int modernValue, bool modernSetByUser, int legacyValue, bool legacySetByUser);
 
+// One mapped window of a workspace, as the app-icon badge sees it. `id` is the compositor's
+// stable id, which grows with every window created, so a smaller id is an older window.
+struct SPrimaryWindowCandidate {
+    uint64_t id      = 0;
+    double   area    = 0.0;
+    bool     visible = true;
+};
+
+// The window whose app a workspace card shows: the workspace's first-opened window (`anchor`)
+// while it is still there, otherwise the one with the largest on-screen area (older wins a tie;
+// hidden windows only when nothing is visible). 0 = the workspace has no window.
+uint64_t                 choosePrimaryWindow(std::optional<uint64_t> anchor, const std::vector<SPrimaryWindowCandidate>& candidates);
+
+// The Wayland app id Chromium gives a `--app=<url>` window (Omarchy's web apps):
+// "https://x.com/" -> "chrome-x.com__-Default". Empty when the text holds no http(s) URL.
+std::string              webAppClassFromUrl(std::string_view url);
+
 SWorkspaceMethodSpec     parseWorkspaceMethodSpec(const std::string& method);
 SWorkspaceMethodSpec     resolveWorkspaceMethodForMonitor(const std::string& config, const std::string& monitorName);
 

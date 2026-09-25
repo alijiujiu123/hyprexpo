@@ -24,6 +24,7 @@ add_project_arguments('-DHYPREXPO_VERSION="' + version_baked + '"', language: 'c
 
 src = files(
   'src/main.cpp',
+  'src/AppIcons.cpp',
   'src/Dispatchers.cpp',
   'src/PluginConfig.cpp',
   'src/IOverviewSession.cpp',
@@ -51,6 +52,7 @@ endif
 shared_module(meson.project_name(), src,
   dependencies: [
     dependency('hyprland'),
+    dependency('hyprgraphics'),
     dependency('pixman-1'),
     dependency('libdrm'),
     dependency('pangocairo'),

@@ -71,6 +71,19 @@ plugin {
 | `plugin:hyprexpo:label_bg_enable` | bool int | draw a background bubble behind labels | `1` |
 | `plugin:hyprexpo:label_bg_color` | color | label background color | `rgba(00000088)` |
 | `plugin:hyprexpo:label_bg_shape` | string | `circle`, `square`, or `rounded` | `circle` |
+| `plugin:hyprexpo:label_app_icon` | bool int | a card whose workspace has windows shows its primary app's icon instead of the text label (the first-opened window while it is open, else the largest one); empty cards keep the text | `0` |
+| `plugin:hyprexpo:label_icon_size` | int | app icon edge in logical px (`0` = `label_font_size`) | `0` |
+| `plugin:hyprexpo:label_icon_theme` | string | icon theme searched before hicolor (empty = Omarchy's current theme, `~/.local/state/omarchy/current/theme/icons.theme`) | empty |
+
+### App icons
+
+With `label_app_icon = 1` the badge becomes the icon of the workspace's *primary app*: the window
+that was opened first on that workspace, for as long as it stays there; once it is closed or moved
+away, the window with the largest on-screen area. The icon is found the way a launcher finds it:
+the desktop entry whose id, `StartupWMClass` or web-app URL (Chromium `--app` windows, e.g.
+Omarchy's web apps) matches the window class, then its `Icon=` through the icon theme, hicolor
+and `/usr/share/pixmaps`. The icon is drawn without the background bubble, at `label_position`
+and `label_offset_x/y`. A card with no windows, or whose app has no icon, keeps its text label.
 
 ## Selection Labels
 

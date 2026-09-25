@@ -751,4 +751,59 @@ SWorkspaceMethodSpec resolveWorkspaceMethodForMonitor(const std::string& config,
     return invalid;
 }
 
+
+uint64_t choosePrimaryWindow(std::optional<uint64_t> anchor, const std::vector<SPrimaryWindowCandidate>& candidates) {
+    if (anchor) {
+        for (const auto& candidate : candidates) {
+            if (candidate.id == *anchor)
+                return candidate.id;
+        }
+    }
+
+    const SPrimaryWindowCandidate* best = nullptr;
+    for (const auto& candidate : candidates) {
+        if (!best) {
+            best = &candidate;
+            continue;
+        }
+        if (candidate.visible != best->visible) {
+            if (candidate.visible)
+                best = &candidate;
+            continue;
+        }
+        if (candidate.area > best->area || (candidate.area == best->area && candidate.id < best->id))
+            best = &candidate;
+    }
+
+    return best ? best->id : 0;
+}
+
+std::string webAppClassFromUrl(std::string_view text) {
+    // Chromium names an app window after GenerateApplicationNameFromURL(): host + "_" + path,
+    // every '/' turned into '_', wrapped as chrome-<name>-<profile>.
+    size_t start = text.find("https://");
+    if (start == std::string_view::npos)
+        start = text.find("http://");
+    if (start == std::string_view::npos)
+        return {};
+
+    std::string_view url = text.substr(start);
+    url                  = url.substr(0, std::min(url.size(), url.find_first_of(" \t\"'")));
+    url.remove_prefix(url.find("://") + 3);
+
+    const size_t     pathStart = url.find('/');
+    std::string_view host      = url.substr(0, pathStart);
+    std::string_view path      = pathStart == std::string_view::npos ? std::string_view{} : url.substr(pathStart);
+    path                       = path.substr(0, std::min(path.size(), path.find_first_of("?#")));
+    host                       = host.substr(0, std::min(host.size(), host.find_first_of("?#")));
+    if (host.empty())
+        return {};
+    if (path.empty())
+        path = "/"; // a URL's path is never empty once parsed: https://x.com == https://x.com/
+
+    std::string name = std::string{host} + "_" + std::string{path};
+    std::replace(name.begin(), name.end(), '/', '_');
+    return "chrome-" + name + "-Default";
+}
+
 }

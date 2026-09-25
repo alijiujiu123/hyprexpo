@@ -9,6 +9,7 @@ set(CMAKE_CXX_STANDARD 23)
 
 set(HYPREXPO_SRC
     src/main.cpp
+    src/AppIcons.cpp
     src/Dispatchers.cpp
     src/PluginConfig.cpp
     src/IOverviewSession.cpp
@@ -60,6 +61,7 @@ endif()
 message(STATUS "Using Lua pkg-config module: ${HYPREXPO_LUA_PKG_CONFIG_RESOLVED}")
 
 pkg_check_modules(deps REQUIRED IMPORTED_TARGET
+    hyprgraphics
     hyprland
     libdrm
     libinput

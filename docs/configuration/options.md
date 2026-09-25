@@ -336,6 +336,9 @@ drag_drop_proxy_rounding = 10
 | `plugin:hyprexpo:label_pixel_snap` | bool int | snap label positions to whole pixels | `1` |
 | `plugin:hyprexpo:label_center_adjust_x` | int | manual center nudge in pixels for centered labels | `0` |
 | `plugin:hyprexpo:label_center_adjust_y` | int | manual center nudge in pixels for centered labels | `0` |
+| `plugin:hyprexpo:label_app_icon` | bool int | a card whose workspace has windows shows its primary app's icon instead of the text label (the first-opened window while it is open, else the largest one); empty cards keep the text | `0` |
+| `plugin:hyprexpo:label_icon_size` | int | app icon edge in logical px (`0` = `label_font_size`) | `0` |
+| `plugin:hyprexpo:label_icon_theme` | string | icon theme searched before hicolor (empty = Omarchy's current theme, `~/.local/state/omarchy/current/theme/icons.theme`) | empty |
 | `plugin:hyprexpo:label_bg_enable` | bool int | draw a background bubble behind labels | `1` |
 | `plugin:hyprexpo:label_bg_color` | color | label background color | `rgba(00000088)` |
 | `plugin:hyprexpo:label_bg_shape` | string | label background shape: `circle`, `square`, or `rounded` | `circle` |

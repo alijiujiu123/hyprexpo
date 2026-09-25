@@ -10,6 +10,7 @@
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/event/EventBus.hpp>
 
+#include "AppIcons.hpp"
 #include "Dispatchers.hpp"
 #include "ExpoGesture.hpp"
 #include "globals.hpp"
@@ -244,6 +245,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     });
 
     static auto PCFG = Event::bus()->m_events.config.reloaded.listen([]() {
+        Hyprexpo::AppIcons::onConfigReload();
         Hyprexpo::Capture::notifyOverviewCaptureConfigReload();
         forEachOverview([](IOverviewSession& overview) { overview.onConfigReload(); });
         syncExpoGestureFromConfig();
@@ -252,6 +254,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     registerHyprexpoDispatchers();
 
     registerHyprexpoConfigValues();
+
+    Hyprexpo::AppIcons::init();
 
     HyprlandAPI::reloadConfig();
 
@@ -265,6 +269,7 @@ APICALL EXPORT void PLUGIN_EXIT() {
 
     destroyAllOverviews();
     g_pHyprRenderer->m_renderPass.removeAllOfType("COverviewPassElement");
+    Hyprexpo::AppIcons::shutdown();
 
     Config::mgr()->reload();
     resetDispatcherRuntime();

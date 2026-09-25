@@ -73,6 +73,7 @@ static bool isStringConfig(const std::string& name) {
         {"plugin:hyprexpo:label_show", true},
         {"plugin:hyprexpo:label_bg_shape", true},
         {"plugin:hyprexpo:label_font_family", true},
+        {"plugin:hyprexpo:label_icon_theme", true},
         {"plugin:hyprexpo:cancel_key", true},
         {"plugin:hyprexpo:gesture_direction", true},
         {"plugin:hyprexpo:border_grad_current", true},
@@ -107,6 +108,7 @@ static Config::STRING stringDefault(const std::string& name) {
         {"plugin:hyprexpo:label_show", HyprexpoConfig::LABEL_SHOW_DEFAULT},
         {"plugin:hyprexpo:label_bg_shape", HyprexpoConfig::LABEL_BG_SHAPE_DEFAULT},
         {"plugin:hyprexpo:label_font_family", HyprexpoConfig::LABEL_FONT_FAMILY_DEFAULT},
+        {"plugin:hyprexpo:label_icon_theme", HyprexpoConfig::LABEL_ICON_THEME_DEFAULT},
         {"plugin:hyprexpo:cancel_key", HyprexpoConfig::CANCEL_KEY_DEFAULT},
         {"plugin:hyprexpo:gesture_direction", HyprexpoConfig::GESTURE_DIRECTION_DEFAULT},
         {"plugin:hyprexpo:border_grad_current", HyprexpoConfig::BORDER_GRAD_CURRENT_DEFAULT},
@@ -185,6 +187,8 @@ static Config::INTEGER intDefault(const std::string& name) {
         {"plugin:hyprexpo:label_text_strikethrough", HyprexpoConfig::LABEL_TEXT_STRIKETHROUGH_DEFAULT},
         {"plugin:hyprexpo:label_center_adjust_x", HyprexpoConfig::LABEL_CENTER_ADJUST_X_DEFAULT},
         {"plugin:hyprexpo:label_center_adjust_y", HyprexpoConfig::LABEL_CENTER_ADJUST_Y_DEFAULT},
+        {"plugin:hyprexpo:label_app_icon", HyprexpoConfig::LABEL_APP_ICON_DEFAULT},
+        {"plugin:hyprexpo:label_icon_size", HyprexpoConfig::LABEL_ICON_SIZE_DEFAULT},
     };
 
     if (const auto it = DEFAULTS.find(name); it != DEFAULTS.end())
