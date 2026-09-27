@@ -17,6 +17,29 @@ mixed-layout row, a three-column workspace with a multi-target column and an
 offscreen target, plus floating, grouped, fullscreen, and pinned cases. The
 default without `HYPREXPO_DEV_LAYOUT` remains the unchanged grid fixture.
 
+### Parallel background sandboxes
+
+Named instances run side by side, headless, without a window on the host — they take no
+focus, input or screen space from the person using the machine, and run at nice 10:
+
+```bash
+scripts/nested-ctl.sh start a                                  # grid fixture
+HYPREXPO_DEV_LAYOUT=scrolling scripts/nested-ctl.sh start b    # scrolling fixture
+scripts/nested-ctl.sh list
+scripts/nested-ctl.sh hyprctl a dispatch hyprexpo:expo on
+scripts/nested-ctl.sh shot a /tmp/a.png                        # grim on the sandbox's own output
+scripts/nested-ctl.sh logs a                                   # hyprexpo-*.log are per instance
+eval "$(scripts/nested-ctl.sh env b)"; kitty &                 # a client inside b
+scripts/nested-ctl.sh stop --all
+```
+
+Each instance has its own `.so`, config (`$XDG_CACHE_HOME/hyprexpo/nested/<name>`) and
+runtime directory (`$XDG_RUNTIME_DIR/hyprexpo-nested/<name>`: sockets and plugin logs), so
+a rebuild never replaces a plugin another sandbox has mapped. `--window` gives an instance
+a host window instead. Clients started by the sandbox's own startup `exec-once` would open on
+the **host** (a nested 0.56 session hands startup children the host's `WAYLAND_DISPLAY`), so
+fixtures go through `hyprctl dispatch exec`, and so should any you add.
+
 The complete exact-ABI automated gate is:
 
 ```bash

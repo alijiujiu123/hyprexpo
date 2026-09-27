@@ -3,13 +3,57 @@ set -euo pipefail
 
 # Launch a nested Hyprland session that loads the local hyprexpo.so,
 # so you can test changes without restarting your main session.
+#
+# Parallel, background sandboxes: HYPREXPO_DEV_INSTANCE=<name> gives the session its own
+# build, config and runtime directory, so any number can run side by side without sharing
+# a .so (rebuilding one another's mapped plugin would crash them) or a plugin log. A named
+# instance is headless by default: it renders to its own headless output and never opens a
+# window on the host, so it takes no focus, no input and no screen space from whoever is
+# using the machine. scripts/nested-ctl.sh starts, drives, screenshots and stops them.
+#
+#   HYPREXPO_DEV_INSTANCE=<name>   state in $XDG_CACHE_HOME/hyprexpo/nested/<name>,
+#                                  runtime (sockets, plugin logs) in
+#                                  $XDG_RUNTIME_DIR/hyprexpo-nested/<name>
+#   HYPREXPO_DEV_HEADLESS=0|1      1 = no host window (default for a named instance)
+#   HYPREXPO_DEV_NICE=<n>          CPU niceness of build + compositor (named default 10)
+#
+# Unnamed, the paths and the host window are what they always were (the validators rely on
+# them); a second unnamed run with the same XDG_CACHE_HOME is refused instead of rebuilding
+# the .so the first one has mapped.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-BUILD_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/hyprexpo"
-SO="${HYPREXPO_DEV_SO:-$BUILD_DIR/hyprexpo.so}"
-CONF="${XDG_CACHE_HOME:-$HOME/.cache}/hyprexpo-dev.conf"
+CACHE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}"
+HOST_RUNTIME="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+INSTANCE_NAME="${HYPREXPO_DEV_INSTANCE:-}"
+if [[ -n "$INSTANCE_NAME" ]]; then
+  if [[ ! "$INSTANCE_NAME" =~ ^[A-Za-z0-9_.-]+$ || "$INSTANCE_NAME" == .* ]]; then
+    printf 'HYPREXPO_DEV_INSTANCE must be [A-Za-z0-9_.-]+ and not start with a dot, got: %s\n' "$INSTANCE_NAME" >&2
+    exit 2
+  fi
+  STATE_DIR="$CACHE_ROOT/hyprexpo/nested/$INSTANCE_NAME"
+  SO="${HYPREXPO_DEV_SO:-$STATE_DIR/hyprexpo.so}"
+  CONF="$STATE_DIR/hyprexpo-dev.conf"
+  NESTED_RUNTIME="$HOST_RUNTIME/hyprexpo-nested/$INSTANCE_NAME"
+  HEADLESS="${HYPREXPO_DEV_HEADLESS:-1}"
+  NICE="${HYPREXPO_DEV_NICE:-10}"
+else
+  BUILD_DIR="$CACHE_ROOT/hyprexpo"
+  STATE_DIR="$BUILD_DIR"
+  SO="${HYPREXPO_DEV_SO:-$BUILD_DIR/hyprexpo.so}"
+  CONF="$CACHE_ROOT/hyprexpo-dev.conf"
+  NESTED_RUNTIME=""
+  HEADLESS="${HYPREXPO_DEV_HEADLESS:-0}"
+  NICE="${HYPREXPO_DEV_NICE:-0}"
+fi
 DEV_LAYOUT="${HYPREXPO_DEV_LAYOUT:-grid}"
+
+# Aquamarine picks the Wayland backend from WAYLAND_DISPLAY. Without one it would take the
+# DRM backend and try to become the seat's compositor - never what a sandbox should do.
+if [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
+  echo "[run-nested] WAYLAND_DISPLAY is not set: run this from inside a Wayland session" >&2
+  exit 2
+fi
 
 case "$DEV_LAYOUT" in
     grid)
@@ -44,18 +88,21 @@ EOF
         read -r -d '' FIXTURE_BLOCK <<'EOF' || true
 # The first workspace settles to three columns: C+D share a column, A and B are
 # dedicated column, and D remains offscreen at the default 0.42 width.
-exec-once = [workspace 1 silent] kitty --class hyprexpo-scroll-fixture --title HYPREXPO-SCROLL-A
-exec-once = [workspace 1 silent] kitty --class hyprexpo-scroll-fixture --title HYPREXPO-SCROLL-B
-exec-once = [workspace 1 silent] kitty --class hyprexpo-scroll-fixture --title HYPREXPO-SCROLL-C
-exec-once = [workspace 1 silent] kitty --class hyprexpo-scroll-fixture --title HYPREXPO-SCROLL-D
-exec-once = [workspace 2 silent] kitty --class hyprexpo-scroll-fixture --title HYPREXPO-SCROLL-LEFT
-exec-once = [workspace 3 silent] kitty --class hyprexpo-scroll-fixture --title HYPREXPO-SCROLL-DOWN
-exec-once = [workspace 4 silent] kitty --class hyprexpo-scroll-fixture --title HYPREXPO-SCROLL-UP
-exec-once = [workspace 5 silent] kitty --class hyprexpo-scroll-fixture --title HYPREXPO-MIXED
-exec-once = [workspace 1 silent; float] kitty --class hyprexpo-scroll-fixture --title HYPREXPO-FLOATING
-exec-once = [workspace 1 silent; float] kitty --class hyprexpo-scroll-fixture --title HYPREXPO-PINNED
-exec-once = [workspace 5 silent] kitty --class hyprexpo-scroll-fixture --title HYPREXPO-GROUP
-exec-once = [workspace 5 silent] kitty --class hyprexpo-scroll-fixture --title HYPREXPO-FULLSCREEN
+# Through `hyprctl dispatch exec`, not a plain exec-once: in a nested 0.56 session every
+# exec run during startup inherits the *host's* WAYLAND_DISPLAY (the sandbox's own socket
+# only reaches children after a reload), so these windows used to open on the host desktop.
+exec-once = hyprctl dispatch exec "[workspace 1 silent] kitty --class hyprexpo-scroll-fixture --title HYPREXPO-SCROLL-A"
+exec-once = hyprctl dispatch exec "[workspace 1 silent] kitty --class hyprexpo-scroll-fixture --title HYPREXPO-SCROLL-B"
+exec-once = hyprctl dispatch exec "[workspace 1 silent] kitty --class hyprexpo-scroll-fixture --title HYPREXPO-SCROLL-C"
+exec-once = hyprctl dispatch exec "[workspace 1 silent] kitty --class hyprexpo-scroll-fixture --title HYPREXPO-SCROLL-D"
+exec-once = hyprctl dispatch exec "[workspace 2 silent] kitty --class hyprexpo-scroll-fixture --title HYPREXPO-SCROLL-LEFT"
+exec-once = hyprctl dispatch exec "[workspace 3 silent] kitty --class hyprexpo-scroll-fixture --title HYPREXPO-SCROLL-DOWN"
+exec-once = hyprctl dispatch exec "[workspace 4 silent] kitty --class hyprexpo-scroll-fixture --title HYPREXPO-SCROLL-UP"
+exec-once = hyprctl dispatch exec "[workspace 5 silent] kitty --class hyprexpo-scroll-fixture --title HYPREXPO-MIXED"
+exec-once = hyprctl dispatch exec "[workspace 1 silent; float] kitty --class hyprexpo-scroll-fixture --title HYPREXPO-FLOATING"
+exec-once = hyprctl dispatch exec "[workspace 1 silent; float] kitty --class hyprexpo-scroll-fixture --title HYPREXPO-PINNED"
+exec-once = hyprctl dispatch exec "[workspace 5 silent] kitty --class hyprexpo-scroll-fixture --title HYPREXPO-GROUP"
+exec-once = hyprctl dispatch exec "[workspace 5 silent] kitty --class hyprexpo-scroll-fixture --title HYPREXPO-FULLSCREEN"
 exec-once = sh -c 'sleep 2; hyprctl dispatch focuswindow title:HYPREXPO-SCROLL-D; hyprctl dispatch layoutmsg consume; hyprctl dispatch focuswindow title:HYPREXPO-PINNED; hyprctl dispatch pin; hyprctl dispatch focuswindow title:HYPREXPO-GROUP; hyprctl dispatch togglegroup; hyprctl dispatch focuswindow title:HYPREXPO-FULLSCREEN; hyprctl dispatch fullscreen 1; hyprctl dispatch workspace 1'
 EOF
         ;;
@@ -73,7 +120,8 @@ MODE="${HYPREXPO_DEV_MODE:-$DEFAULT_MODE}"
 MODE_W="${MODE%%x*}"
 
 # Number of nested outputs. Set to 2+ to exercise multi-monitor behavior; each
-# extra output is created at runtime and appears as its own host window.
+# extra output is created at runtime and appears as its own host window (headless:
+# as another headless output, HEADLESS-1..N).
 OUTPUTS="${HYPREXPO_DEV_OUTPUTS:-1}"
 
 # Pick a terminal that actually exists on this machine instead of assuming one.
@@ -92,18 +140,36 @@ if [[ -z "$TERMINAL" ]]; then
 fi
 
 EXTRA_OUTPUTS=""
-for ((i = 2; i <= OUTPUTS; i++)); do
-  EXTRA_OUTPUTS+="exec-once = hyprctl output create auto"$'\n'
-done
+if [[ "$HEADLESS" == 1 ]]; then
+  # The host-facing output is switched off, so the session never maps a window on the host;
+  # it renders to headless outputs instead. That also keeps the frame loop alive: a nested
+  # window the host is not compositing never gets a frame back, and grim then hangs.
+  MONITOR_BLOCK="monitor=WAYLAND-1,disable"$'\n'"monitor=,$MODE,auto,1"
+  for ((i = 1; i <= OUTPUTS; i++)); do
+    EXTRA_OUTPUTS+="exec-once = hyprctl output create headless HEADLESS-$i"$'\n'
+  done
+else
+  MONITOR_BLOCK="monitor=WAYLAND-1,$MODE,0x0,1"$'\n'"monitor=WAYLAND-2,$MODE,${MODE_W}x0,1"$'\n'"monitor=,$MODE,auto,1"
+  for ((i = 2; i <= OUTPUTS; i++)); do
+    EXTRA_OUTPUTS+="exec-once = hyprctl output create auto"$'\n'
+  done
+fi
 
-mkdir -p "$(dirname "$CONF")" "$(dirname "$SO")"
+mkdir -p "$STATE_DIR" "$(dirname "$CONF")" "$(dirname "$SO")"
+# One session per state directory, held until the compositor exits (the fd survives the exec
+# below). Taken before the build: rebuilding a .so another session has mapped crashes it.
+exec 9>"$STATE_DIR/nested.lock"
+if ! flock -n 9; then
+  echo "[run-nested] a sandbox is already running from $STATE_DIR" >&2
+  echo "[run-nested] stop it, or start another alongside: HYPREXPO_DEV_INSTANCE=<name> (see scripts/nested-ctl.sh)" >&2
+  exit 1
+fi
+
 echo "[run-nested] Building local plugin at $SO"
-make -C "$REPO_ROOT" all TARGET="$SO"
+nice -n "$NICE" make -C "$REPO_ROOT" all TARGET="$SO"
 
 cat > "$CONF" <<EOF
-monitor=WAYLAND-1,$MODE,0x0,1
-monitor=WAYLAND-2,$MODE,${MODE_W}x0,1
-monitor=,$MODE,auto,1
+$MONITOR_BLOCK
 
 $EXTRA_OUTPUTS
 
@@ -227,7 +293,32 @@ submap = reset
 $FIXTURE_BLOCK
 EOF
 
-echo "[run-nested] Launching nested Hyprland with $CONF"
+RUNTIME_ENV=()
+if [[ -n "$NESTED_RUNTIME" ]]; then
+  # A private runtime directory: the session's sockets and the plugin's
+  # $XDG_RUNTIME_DIR/hyprexpo-*.log files are this instance's alone. The host display then
+  # has to be named by its absolute path. Cleared first - the lock above is ours, so
+  # nothing else is using it.
+  [[ "$NESTED_RUNTIME" == "$HOST_RUNTIME/hyprexpo-nested/"?* ]] || exit 2
+  rm -rf -- "$NESTED_RUNTIME"
+  mkdir -p -m 700 "$NESTED_RUNTIME"
+  HOST_DISPLAY="$WAYLAND_DISPLAY"
+  [[ "$HOST_DISPLAY" == /* ]] || HOST_DISPLAY="$HOST_RUNTIME/$HOST_DISPLAY"
+  RUNTIME_ENV=(XDG_RUNTIME_DIR="$NESTED_RUNTIME" WAYLAND_DISPLAY="$HOST_DISPLAY")
+fi
+
+# What nested-ctl.sh reads to find this session; the pid is the compositor's (exec below).
+cat > "$STATE_DIR/instance.env" <<EOF
+pid=$$
+runtime=${NESTED_RUNTIME:-$HOST_RUNTIME}
+headless=$HEADLESS
+outputs=$OUTPUTS
+layout=$DEV_LAYOUT
+conf=$CONF
+so=$SO
+EOF
+
+echo "[run-nested] Launching nested Hyprland with $CONF (pid $$, $( [[ "$HEADLESS" == 1 ]] && echo headless || echo 'host window'))"
 # Hyprland 0.56 uses aquamarine, not wlroots: the old WLR_* variables are
 # inert. Aquamarine selects its Wayland backend from WAYLAND_DISPLAY.
-exec env HYPRLAND_NO_LOGO=1 Hyprland -c "$CONF"
+exec nice -n "$NICE" env "${RUNTIME_ENV[@]}" HYPRLAND_NO_LOGO=1 Hyprland -c "$CONF"
