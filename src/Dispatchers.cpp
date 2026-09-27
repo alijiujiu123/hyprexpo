@@ -989,6 +989,4 @@ void registerHyprexpoDispatchers() {
     HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "debug", luaDebugGeometry);
     HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "sessions", luaSessions);
     HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "simswipe", luaSimSwipe);
-    HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "sessions", luaSessions);
-    HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "simswipe", luaSimSwipe);
 }

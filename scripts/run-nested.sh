@@ -4,53 +4,27 @@ set -euo pipefail
 # Launch a nested Hyprland session that loads the local hyprexpo.so,
 # so you can test changes without restarting your main session.
 #
-# Parallel, background sandboxes: HYPREXPO_DEV_INSTANCE=<name> gives the session its own
-# build, config and runtime directory, so any number can run side by side without sharing
-# a .so (rebuilding one another's mapped plugin would crash them) or a plugin log. A named
-# instance is headless by default: it renders to its own headless output and never opens a
-# window on the host, so it takes no focus, no input and no screen space from whoever is
-# using the machine. scripts/nested-ctl.sh starts, drives, screenshots and stops them.
+# Parallel, background sandboxes - the live Lua config, every plugin this machine loads,
+# headless - are scripts/nested-ctl.sh (the kit's hypr-sandbox). It can also run this
+# script's fixture: `--print-config` writes that config, without outputs or a plugin line,
+# to stdout and exits.
 #
-#   HYPREXPO_DEV_INSTANCE=<name>   state in $XDG_CACHE_HOME/hyprexpo/nested/<name>,
-#                                  runtime (sockets, plugin logs) in
-#                                  $XDG_RUNTIME_DIR/hyprexpo-nested/<name>
-#   HYPREXPO_DEV_HEADLESS=0|1      1 = no host window (default for a named instance)
-#   HYPREXPO_DEV_NICE=<n>          CPU niceness of build + compositor (named default 10)
-#
-# Unnamed, the paths and the host window are what they always were (the validators rely on
-# them); a second unnamed run with the same XDG_CACHE_HOME is refused instead of rebuilding
-# the .so the first one has mapped.
+# One session per XDG_CACHE_HOME: a second one is refused instead of rebuilding the .so the
+# first has mapped.
+
+PRINT_CONFIG=0
+[[ "${1:-}" == --print-config ]] && PRINT_CONFIG=1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-CACHE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}"
-HOST_RUNTIME="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-INSTANCE_NAME="${HYPREXPO_DEV_INSTANCE:-}"
-if [[ -n "$INSTANCE_NAME" ]]; then
-  if [[ ! "$INSTANCE_NAME" =~ ^[A-Za-z0-9_.-]+$ || "$INSTANCE_NAME" == .* ]]; then
-    printf 'HYPREXPO_DEV_INSTANCE must be [A-Za-z0-9_.-]+ and not start with a dot, got: %s\n' "$INSTANCE_NAME" >&2
-    exit 2
-  fi
-  STATE_DIR="$CACHE_ROOT/hyprexpo/nested/$INSTANCE_NAME"
-  SO="${HYPREXPO_DEV_SO:-$STATE_DIR/hyprexpo.so}"
-  CONF="$STATE_DIR/hyprexpo-dev.conf"
-  NESTED_RUNTIME="$HOST_RUNTIME/hyprexpo-nested/$INSTANCE_NAME"
-  HEADLESS="${HYPREXPO_DEV_HEADLESS:-1}"
-  NICE="${HYPREXPO_DEV_NICE:-10}"
-else
-  BUILD_DIR="$CACHE_ROOT/hyprexpo"
-  STATE_DIR="$BUILD_DIR"
-  SO="${HYPREXPO_DEV_SO:-$BUILD_DIR/hyprexpo.so}"
-  CONF="$CACHE_ROOT/hyprexpo-dev.conf"
-  NESTED_RUNTIME=""
-  HEADLESS="${HYPREXPO_DEV_HEADLESS:-0}"
-  NICE="${HYPREXPO_DEV_NICE:-0}"
-fi
+BUILD_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/hyprexpo"
+SO="${HYPREXPO_DEV_SO:-$BUILD_DIR/hyprexpo.so}"
+CONF="${XDG_CACHE_HOME:-$HOME/.cache}/hyprexpo-dev.conf"
 DEV_LAYOUT="${HYPREXPO_DEV_LAYOUT:-grid}"
 
 # Aquamarine picks the Wayland backend from WAYLAND_DISPLAY. Without one it would take the
 # DRM backend and try to become the seat's compositor - never what a sandbox should do.
-if [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
+if [[ $PRINT_CONFIG == 0 && -z "${WAYLAND_DISPLAY:-}" ]]; then
   echo "[run-nested] WAYLAND_DISPLAY is not set: run this from inside a Wayland session" >&2
   exit 2
 fi
@@ -120,8 +94,7 @@ MODE="${HYPREXPO_DEV_MODE:-$DEFAULT_MODE}"
 MODE_W="${MODE%%x*}"
 
 # Number of nested outputs. Set to 2+ to exercise multi-monitor behavior; each
-# extra output is created at runtime and appears as its own host window (headless:
-# as another headless output, HEADLESS-1..N).
+# extra output is created at runtime and appears as its own host window.
 OUTPUTS="${HYPREXPO_DEV_OUTPUTS:-1}"
 
 # Pick a terminal that actually exists on this machine instead of assuming one.
@@ -140,35 +113,30 @@ if [[ -z "$TERMINAL" ]]; then
 fi
 
 EXTRA_OUTPUTS=""
-if [[ "$HEADLESS" == 1 ]]; then
-  # The host-facing output is switched off, so the session never maps a window on the host;
-  # it renders to headless outputs instead. That also keeps the frame loop alive: a nested
-  # window the host is not compositing never gets a frame back, and grim then hangs.
-  MONITOR_BLOCK="monitor=WAYLAND-1,disable"$'\n'"monitor=,$MODE,auto,1"
-  for ((i = 1; i <= OUTPUTS; i++)); do
-    EXTRA_OUTPUTS+="exec-once = hyprctl output create headless HEADLESS-$i"$'\n'
-  done
+for ((i = 2; i <= OUTPUTS; i++)); do
+  EXTRA_OUTPUTS+="exec-once = hyprctl output create auto"$'\n'
+done
+MONITOR_BLOCK="monitor=WAYLAND-1,$MODE,0x0,1"$'\n'"monitor=WAYLAND-2,$MODE,${MODE_W}x0,1"$'\n'"monitor=,$MODE,auto,1"
+PLUGIN_LINE="plugin = $SO"
+OUT="$CONF"
+if [[ $PRINT_CONFIG == 1 ]]; then
+  # For hypr-sandbox: it owns the outputs and loads the plugins itself.
+  MONITOR_BLOCK="" EXTRA_OUTPUTS="" PLUGIN_LINE="" OUT=/dev/stdout
 else
-  MONITOR_BLOCK="monitor=WAYLAND-1,$MODE,0x0,1"$'\n'"monitor=WAYLAND-2,$MODE,${MODE_W}x0,1"$'\n'"monitor=,$MODE,auto,1"
-  for ((i = 2; i <= OUTPUTS; i++)); do
-    EXTRA_OUTPUTS+="exec-once = hyprctl output create auto"$'\n'
-  done
+  mkdir -p "$(dirname "$CONF")" "$BUILD_DIR" "$(dirname "$SO")"
+  # Held until the compositor exits (the fd survives the exec below). Taken before the build:
+  # rebuilding a .so another session has mapped crashes it.
+  exec 9>"$BUILD_DIR/nested.lock"
+  if ! flock -n 9; then
+    echo "[run-nested] a sandbox is already running from $BUILD_DIR" >&2
+    echo "[run-nested] stop it, or run more side by side: scripts/nested-ctl.sh start <name>" >&2
+    exit 1
+  fi
+  echo "[run-nested] Building local plugin at $SO"
+  make -C "$REPO_ROOT" all TARGET="$SO"
 fi
 
-mkdir -p "$STATE_DIR" "$(dirname "$CONF")" "$(dirname "$SO")"
-# One session per state directory, held until the compositor exits (the fd survives the exec
-# below). Taken before the build: rebuilding a .so another session has mapped crashes it.
-exec 9>"$STATE_DIR/nested.lock"
-if ! flock -n 9; then
-  echo "[run-nested] a sandbox is already running from $STATE_DIR" >&2
-  echo "[run-nested] stop it, or start another alongside: HYPREXPO_DEV_INSTANCE=<name> (see scripts/nested-ctl.sh)" >&2
-  exit 1
-fi
-
-echo "[run-nested] Building local plugin at $SO"
-nice -n "$NICE" make -C "$REPO_ROOT" all TARGET="$SO"
-
-cat > "$CONF" <<EOF
+cat > "$OUT" <<EOF
 $MONITOR_BLOCK
 
 $EXTRA_OUTPUTS
@@ -184,7 +152,7 @@ cursor {
 }
 
 # load local build
-plugin = $SO
+$PLUGIN_LINE
 
 plugin {
   hyprexpo {
@@ -293,32 +261,9 @@ submap = reset
 $FIXTURE_BLOCK
 EOF
 
-RUNTIME_ENV=()
-if [[ -n "$NESTED_RUNTIME" ]]; then
-  # A private runtime directory: the session's sockets and the plugin's
-  # $XDG_RUNTIME_DIR/hyprexpo-*.log files are this instance's alone. The host display then
-  # has to be named by its absolute path. Cleared first - the lock above is ours, so
-  # nothing else is using it.
-  [[ "$NESTED_RUNTIME" == "$HOST_RUNTIME/hyprexpo-nested/"?* ]] || exit 2
-  rm -rf -- "$NESTED_RUNTIME"
-  mkdir -p -m 700 "$NESTED_RUNTIME"
-  HOST_DISPLAY="$WAYLAND_DISPLAY"
-  [[ "$HOST_DISPLAY" == /* ]] || HOST_DISPLAY="$HOST_RUNTIME/$HOST_DISPLAY"
-  RUNTIME_ENV=(XDG_RUNTIME_DIR="$NESTED_RUNTIME" WAYLAND_DISPLAY="$HOST_DISPLAY")
-fi
+[[ $PRINT_CONFIG == 1 ]] && exit 0
 
-# What nested-ctl.sh reads to find this session; the pid is the compositor's (exec below).
-cat > "$STATE_DIR/instance.env" <<EOF
-pid=$$
-runtime=${NESTED_RUNTIME:-$HOST_RUNTIME}
-headless=$HEADLESS
-outputs=$OUTPUTS
-layout=$DEV_LAYOUT
-conf=$CONF
-so=$SO
-EOF
-
-echo "[run-nested] Launching nested Hyprland with $CONF (pid $$, $( [[ "$HEADLESS" == 1 ]] && echo headless || echo 'host window'))"
+echo "[run-nested] Launching nested Hyprland with $CONF"
 # Hyprland 0.56 uses aquamarine, not wlroots: the old WLR_* variables are
 # inert. Aquamarine selects its Wayland backend from WAYLAND_DISPLAY.
-exec nice -n "$NICE" env "${RUNTIME_ENV[@]}" HYPRLAND_NO_LOGO=1 Hyprland -c "$CONF"
+exec env HYPRLAND_NO_LOGO=1 Hyprland -c "$CONF"

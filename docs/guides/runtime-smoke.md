@@ -19,26 +19,26 @@ default without `HYPREXPO_DEV_LAYOUT` remains the unchanged grid fixture.
 
 ### Parallel background sandboxes
 
-Named instances run side by side, headless, without a window on the host — they take no
-focus, input or screen space from the person using the machine, and run at nice 10:
+`scripts/nested-ctl.sh` runs the kit's `hypr-sandbox` with hyprexpo built from this checkout:
+headless, in the background, several at once, loading every plugin the machine runs. By
+default the session uses the machine's own Lua config - the check that matters before a
+live load; `--fixture` uses this script's hyprlang fixture instead (F10 binds, labels,
+keynav, the `hyprexpo:*` dispatchers):
 
 ```bash
-scripts/nested-ctl.sh start a                                  # grid fixture
-HYPREXPO_DEV_LAYOUT=scrolling scripts/nested-ctl.sh start b    # scrolling fixture
+scripts/nested-ctl.sh start a                                           # live config
+HYPREXPO_DEV_LAYOUT=scrolling scripts/nested-ctl.sh start b --fixture   # scrolling fixture
 scripts/nested-ctl.sh list
-scripts/nested-ctl.sh hyprctl a dispatch hyprexpo:expo on
-scripts/nested-ctl.sh shot a /tmp/a.png                        # grim on the sandbox's own output
-scripts/nested-ctl.sh logs a                                   # hyprexpo-*.log are per instance
-eval "$(scripts/nested-ctl.sh env b)"; kitty &                 # a client inside b
+scripts/nested-ctl.sh eval a 'hl.plugin.hyprexpo.expo("on")'
+scripts/nested-ctl.sh hyprctl b dispatch hyprexpo:expo on
+scripts/nested-ctl.sh shot a /tmp/a.png            # grim on the sandbox's own output
+scripts/nested-ctl.sh logs a                       # compositor + hyprexpo-*.log, per instance
 scripts/nested-ctl.sh stop --all
 ```
 
-Each instance has its own `.so`, config (`$XDG_CACHE_HOME/hyprexpo/nested/<name>`) and
-runtime directory (`$XDG_RUNTIME_DIR/hyprexpo-nested/<name>`: sockets and plugin logs), so
-a rebuild never replaces a plugin another sandbox has mapped. `--window` gives an instance
-a host window instead. Clients started by the sandbox's own startup `exec-once` would open on
-the **host** (a nested 0.56 session hands startup children the host's `WAYLAND_DISPLAY`), so
-fixtures go through `hyprctl dispatch exec`, and so should any you add.
+Clients started by a sandbox's own startup `exec-once` would open on the **host** (a nested
+0.56 session hands startup children the host's `WAYLAND_DISPLAY`), so the fixtures go
+through `hyprctl dispatch exec`, and so should any you add.
 
 The complete exact-ABI automated gate is:
 
