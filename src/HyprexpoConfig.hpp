@@ -64,10 +64,6 @@ inline constexpr int         OVERVIEW_ANIM_SPEED_DEFAULT     = 0;
 // the kit's reduced-motion toggle writes (0) to stop the travel, `overview_anim_speed` being
 // plugin-owned config the toggle cannot reach otherwise.
 inline constexpr int         CARD_REORDER_MS_DEFAULT         = 160;
-// The landing card's jelly: a card in the air is drawn this many percent larger and, on the drop,
-// springs back to its size through an underdamped spring — it squashes past 100 % and wobbles to rest.
-// 0 = no jelly (the landing rides `card_reorder_ms` like the other cards); reduced motion writes 0.
-inline constexpr int         CARD_LAND_JELLY_DEFAULT         = 0;
 // Recapture a tile when its workspace produced surface damage while the overview is open.
 // Hyprland renders only the visible workspace, so a hidden workspace's clients commit
 // exactly when they have something new to show (its commits carry damage or they are not

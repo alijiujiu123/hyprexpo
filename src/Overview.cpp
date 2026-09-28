@@ -1257,17 +1257,6 @@ void COverview::ensureTileOffsets() {
     }
 
     tileOffsets.resize(images.size());
-
-    while (tileScales.size() < images.size()) {
-        PHLANIMVAR<float> scale;
-
-        Animation::mgr()->createAnimation(1.F, scale, Hyprexpo::Animation::configForCardJelly(), AVARDAMAGE_NONE);
-        scale->setUpdateCallback(damageMonitor);
-
-        tileScales.emplace_back(std::move(scale));
-    }
-
-    tileScales.resize(images.size());
 }
 
 

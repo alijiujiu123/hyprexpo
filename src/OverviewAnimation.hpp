@@ -83,46 +83,6 @@ namespace Hyprexpo::Animation {
         return CONFIG;
     }
 
-    // A named spring in the form an animation config names it (`spring:<name>`, what `hl.animation`
-    // writes). The config's own `hl.curve(name, { type = "spring", … })` wins; otherwise the plugin's
-    // values are registered — per animation start, since a config reload drops every spring.
-    inline std::string springCurve(const char* name, float stiffness, float damping) {
-        if (!::Animation::mgr()->springExists(name))
-            ::Animation::mgr()->addSpringWithName(name, Hyprutils::Animation::SSpringCurve{.stiffness = stiffness, .damping = damping, .mass = 1.F});
-
-        return std::string{"spring:"} + name;
-    }
-
-    // `plugin:hyprexpo:card_land_jelly`, forced to 0 when the reorder itself is instant
-    // (`card_reorder_ms = 0`, what reduced motion writes): a wobble must not outlive the rule that
-    // stopped the travel.
-    inline int cardLandJellyPct() {
-        if (CompatHyprlandAPI::intValue("plugin:hyprexpo:card_reorder_ms") <= 0)
-            return 0;
-        return static_cast<int>(std::clamp<Hyprlang::INT>(CompatHyprlandAPI::intValue("plugin:hyprexpo:card_land_jelly"), 0, 30));
-    }
-
-    // The landing card sliding into its slot when the jelly is on: a spring barely past critical
-    // (damping ratio ≈ 0.74, ~3 % overshoot) — it arrives with the wobble, it does not bounce off the
-    // slot itself. A spring's duration is its physics, so `internalSpeed` only has to be non-zero.
-    inline SP<Hyprutils::Animation::SAnimationPropertyConfig> configForCardLand() {
-        static SP<Hyprutils::Animation::SAnimationPropertyConfig> CONFIG = makePluginConfig();
-
-        CONFIG->internalBezier = springCurve("hyprexpoCardLand", 260.F, 24.F);
-        CONFIG->internalSpeed  = 1.F;
-        return CONFIG;
-    }
-
-    // The jelly itself, on the landing card's scale: underdamped (damping ratio ≈ 0.31), so from the
-    // lifted size it squashes about a third of the lift below 100 %, swells back, and settles in ~0.6 s.
-    inline SP<Hyprutils::Animation::SAnimationPropertyConfig> configForCardJelly() {
-        static SP<Hyprutils::Animation::SAnimationPropertyConfig> CONFIG = makePluginConfig();
-
-        CONFIG->internalBezier = springCurve("hyprexpoCardJelly", 320.F, 11.F);
-        CONFIG->internalSpeed  = 1.F;
-        return CONFIG;
-    }
-
     // Call right before an animated assignment (`*var = …`) to give that transition the
     // overview's own curve. The swipe drag itself uses setValueAndWarp, so it is unaffected.
     // PHLANIMVAR is a unique pointer, hence the raw-pointer parameter (`applyTo(var.get())`).

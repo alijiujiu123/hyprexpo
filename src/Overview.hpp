@@ -227,9 +227,6 @@ class COverview final : public IOverviewSession {
     // dragged slot and the hovered one slide a slot over (Hyprexpo::cardShiftFor) and settle into the
     // new order after the drop, instead of the whole grid jumping.
     std::vector<PHLANIMVAR<Vector2D>> tileOffsets;
-    // Each card's drawn scale around its centre, 1 at rest; only the landing card's jelly moves it
-    // (`card_land_jelly`). Created and resized alongside `tileOffsets`.
-    std::vector<PHLANIMVAR<float>>    tileScales;
 
     // Re-derives the dynamic grid from this monitor's workspaces and sizes `images` (and the per-tile
     // bookkeeping) to match. Called from the constructor when the overview opens.
