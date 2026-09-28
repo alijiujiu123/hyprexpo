@@ -148,6 +148,14 @@ class COverview final : public IOverviewSession {
     bool       finishWindowDrag();
     void       updateWindowDrag();
     void       redrawDraggedWorkspace(int64_t workspaceID);
+    // One animated offset per card, in step with `images` (a re-derived grid drops the extra ones).
+    void       ensureTileOffsets();
+    // The live preview of a badge drag: every card but the dragged one gets its shift, the target
+    // being where the gap opens. Called whenever `cardDrag.target` changes.
+    void       updateCardShiftOffsets();
+    // The drop: `slot` (or -1 for a drag that commits nothing) starts at `from` — a pointer-relative
+    // card delta — and every card glides home.
+    void       landCardDrag(int slot, const Vector2D& from);
     // Card reorder: press on a card's badge and drag the whole card to another slot (dynamic grid).
     bool       beginCardDrag();
     void       updateCardDrag();
@@ -199,7 +207,7 @@ class COverview final : public IOverviewSession {
 
     std::vector<SWorkspaceImage> images;
 
-    // Where each tile's badge (icon or text label) was last drawn, monitor-local logical coordinates;
+    // Where each card's badge (icon or text label) was last drawn, monitor-local logical coordinates;
     // an empty box = no badge. Written by the renderer, read by the card-drag hit test.
     std::vector<CBox>            badgeBoxes;
 
@@ -213,6 +221,12 @@ class COverview final : public IOverviewSession {
         Vector2D grabOffset;   // pointer minus the card's top-left at press, logical
     } cardDrag;
 
+    // How far each card is drawn from its own slot, monitor-local *logical* units like the box
+    // `tileBoxForIndex` returns (the renderer translates before scaling). One per slot, created and
+    // resized with `images` by ensureTileOffsets(). A badge drag drives them: the cards between the
+    // dragged slot and the hovered one slide a slot over (Hyprexpo::cardShiftFor) and settle into the
+    // new order after the drop, instead of the whole grid jumping.
+    std::vector<PHLANIMVAR<Vector2D>> tileOffsets;
 
     // Re-derives the dynamic grid from this monitor's workspaces and sizes `images` (and the per-tile
     // bookkeeping) to match. Called from the constructor when the overview opens.

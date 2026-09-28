@@ -822,4 +822,17 @@ std::vector<SSlotMove> planCardReorder(size_t count, size_t from, size_t to) {
     return moves;
 }
 
+int cardShiftFor(size_t count, size_t from, int to, size_t index) {
+    // `to < 0` is the pointer off the grid: no target, so nothing moves out of the way.
+    if (to < 0 || from >= count || static_cast<size_t>(to) >= count || static_cast<size_t>(to) == from || index >= count || index == from)
+        return 0;
+
+    const size_t TARGET = static_cast<size_t>(to);
+    if (from < TARGET && index > from && index <= TARGET)
+        return -1; // dragged forward: the cards it passed over move one slot back
+    if (TARGET < from && index >= TARGET && index < from)
+        return 1; // dragged backward: they move one slot forward
+    return 0;
+}
+
 }

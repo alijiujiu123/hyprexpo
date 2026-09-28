@@ -262,6 +262,15 @@ struct SSlotMove {
 };
 std::vector<SSlotMove>   planCardReorder(size_t count, size_t from, size_t to);
 
+// The *visual* half of `planCardReorder`, for the live preview while a card is in the air: card
+// contents do not move until the drop, so the cards between the dragged slot `from` and the hovered
+// slot `to` slide one slot toward `from` and the gap that opens is the slot the drop would use. The
+// result says how far `index` is drawn from its own slot, in slots: -1 = one back, +1 = one forward,
+// 0 = stays (the dragged card itself, everything outside the span, and any drag that has no real
+// target). `to` is an `int` because "the pointer left the grid" is -1. Applying the shift to the
+// drawn boxes and `planCardReorder` to the contents therefore describe the same arrangement.
+int cardShiftFor(size_t count, size_t from, int to, size_t index);
+
 // The Wayland app id Chromium gives a `--app=<url>` window (Omarchy's web apps):
 // "https://x.com/" -> "chrome-x.com__-Default". Empty when the text holds no http(s) URL.
 std::string              webAppClassFromUrl(std::string_view url);

@@ -1238,6 +1238,25 @@ void COverview::fillDynamicGrid() {
         images[i].workspaceID = visibleWorkspaceIDs[i];
 
     lastTileCapture.resize(CARDS, std::chrono::steady_clock::now());
+    ensureTileOffsets();
+}
+
+// One animated offset per card, in step with `images`. Created here rather than per drag (a drag must
+// not pay for a handful of allocations) and out of `Hyprexpo::Animation::configForCardReorder()`, whose
+// duration is what the kit's reduced-motion toggle zeroes. `Animation::mgr()` ticks each one and calls
+// its update callback, which is how the moved cards repaint — the same path `size`/`pos` use for the
+// camera, so a card that is mid-glide when the grid is re-derived keeps its value.
+void COverview::ensureTileOffsets() {
+    while (tileOffsets.size() < images.size()) {
+        PHLANIMVAR<Vector2D> offset;
+
+        Animation::mgr()->createAnimation(Vector2D{0, 0}, offset, Hyprexpo::Animation::configForCardReorder(), AVARDAMAGE_NONE);
+        offset->setUpdateCallback(damageMonitor);
+
+        tileOffsets.emplace_back(std::move(offset));
+    }
+
+    tileOffsets.resize(images.size());
 }
 
 
@@ -1286,6 +1305,7 @@ COverview::COverview(PHLWORKSPACE startedOn_, PHLMONITOR monitor_, bool swipe_, 
     }
 
     images.resize(gridShape.cols * gridShape.rows);
+    ensureTileOffsets();
 
     const bool anchorSelector = !methodCenter || (!skipEmpty && maxWorkspace > 0 && methodStartID != startedOn->m_id);
     if (anchorSelector) {

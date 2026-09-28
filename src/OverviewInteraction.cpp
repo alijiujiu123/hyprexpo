@@ -466,6 +466,11 @@ bool COverview::beginCardDrag() {
         cardDrag.pressLocal = POINT;
         cardDrag.pointerLocal = POINT;
         cardDrag.grabOffset = POINT - Vector2D{TILE.x, TILE.y};
+        // A previous drop may still be settling: warp it home, so this drag starts from the layout the
+        // pointer is on rather than from cards caught in the air.
+        for (const auto& offset : tileOffsets)
+            if (offset)
+                offset->setValueAndWarp(Vector2D{0, 0});
         Pointer::Cursor::overrideController->setOverride("grabbing", Pointer::Cursor::CURSOR_OVERRIDE_UNKNOWN);
         damage();
         return true;
@@ -487,7 +492,57 @@ void COverview::updateCardDrag() {
     // Nothing crosses screens: a pointer off this grid (or on another monitor) has no target.
     const int HIT   = tileIndexAtPoint(POINT, size->value(), GAP_WIDTH, currentOuterInset(), true);
     cardDrag.target = isTileValid(HIT) ? HIT : -1;
+    updateCardShiftOffsets();
     damage();
+}
+
+// The live preview: the cards between the dragged slot and the one under the pointer slide one slot
+// over, so the gap the drop would use is open before the drop. Contents do not move until then — this
+// is only where each card is *drawn* (Hyprexpo::cardShiftFor), which is why nothing here touches
+// `images` or the workspaces. The offsets animate on the reorder curve and retarget mid-flight, so a
+// pointer crossing several slots re-points the same animation instead of restarting it.
+void COverview::updateCardShiftOffsets() {
+    if (cardDrag.source < 0)
+        return;
+
+    for (size_t id = 0; id < tileOffsets.size() && id < images.size(); ++id) {
+        const auto& OFFSET = tileOffsets[id];
+        if (!OFFSET)
+            continue;
+
+        const int SHIFT = Hyprexpo::cardShiftFor(images.size(), (size_t)cardDrag.source, cardDrag.target, id);
+        if (SHIFT == 0) {
+            *OFFSET = Vector2D{0, 0};
+            continue;
+        }
+
+        // One slot over, in the grid's own geometry: `tilePosForID` moves a card the way the layout
+        // does, so a shift across a row boundary carries the row change with it.
+        const auto BOX  = tilePosForID((int)id, size->value(), GAP_WIDTH, currentOuterInset(), true);
+        const auto NEXT = tilePosForID((int)id + SHIFT, size->value(), GAP_WIDTH, currentOuterInset(), true);
+        *OFFSET         = NEXT - BOX;
+    }
+}
+
+// The drop. `slot` is where the dragged card's contents landed (-1 when the drag committed nothing);
+// that card starts where the pointer left it and glides into its box, and every card that slid a slot
+// over glides back to its own — the arrangement arriving instead of jumping. The captures behind those
+// cards are re-taken asynchronously, so a card can show its previous contents for a frame or two while
+// it moves; the drop committed the new order either way.
+void COverview::landCardDrag(int slot, const Vector2D& from) {
+    for (size_t id = 0; id < tileOffsets.size(); ++id) {
+        const auto& OFFSET = tileOffsets[id];
+        if (!OFFSET)
+            continue;
+
+        if ((int)id == slot && id < images.size()) {
+            // Where the pointer left it, then home: the first write is the *start* of the glide, so it
+            // must not animate (the card would travel from its slot to the pointer and stay there).
+            OFFSET->setValueAndWarp(from);
+            *OFFSET = Vector2D{0, 0};
+        } else
+            *OFFSET = Vector2D{0, 0};
+    }
 }
 
 bool COverview::finishCardDrag() {
@@ -507,8 +562,10 @@ bool COverview::finishCardDrag() {
 
     const auto MOVES = Hyprexpo::planCardReorder(images.size(), (size_t)DRAG.source, (size_t)DRAG.target);
     for (const auto& move : MOVES) {
-        if (!isTileValid((int)move.source) || !isTileValid((int)move.destination))
+        if (!isTileValid((int)move.source) || !isTileValid((int)move.destination)) {
+            landCardDrag(-1, {}); // the drag gave up: the cards it moved out of the way go home
             return true;
+        }
     }
 
     auto workspaceByID = [&](int64_t id) -> PHLWORKSPACE {
@@ -574,6 +631,11 @@ bool COverview::finishCardDrag() {
         images[move.destination].pWorkspace = workspaceByID(images[move.destination].workspaceID);
         redrawDraggedWorkspace(images[move.destination].workspaceID);
     }
+    // The new order *arrives*: the slot the card landed in starts where the pointer left it (the lifted
+    // copy's top-left, which is what the pointer carried) and glides into its box, while the cards that
+    // slid a slot over glide back to their own. Their contents already changed with the windows, so this
+    // is only where each card is drawn.
+    landCardDrag(DRAG.target, DRAG.pointerLocal - DRAG.grabOffset - tilePosForID(DRAG.target, size->value(), GAP_WIDTH, currentOuterInset(), true));
     Log::logger->log(Log::INFO, "[hyprexpo] card reorder: slot {} -> {} ({} moves)", DRAG.source, DRAG.target, MOVES.size());
     return true;
 }

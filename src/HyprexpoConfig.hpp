@@ -56,6 +56,14 @@ inline constexpr int         RESAMPLE_MS_DEFAULT             = 0;
 // Overview open/close animation duration in 100 ms steps (0 = inherit the compositor's
 // `windowsMove` leaf, which also animates window moves).
 inline constexpr int         OVERVIEW_ANIM_SPEED_DEFAULT     = 0;
+// How long a card takes to slide one slot over while a badge drag is open, and to settle into its
+// new slot after the drop, in ms (0 = the cards jump, the behaviour before this key). Its own key
+// rather than a share of `overview_anim_speed`: this is a one-slot shuffle, not the camera zoom, and
+// it is the duration the shell's own reorder animation uses (Ui.motion.fade in the kit's Launchpad,
+// the same motion in QML — copied, not imported). It is a plain config key on purpose: that is what
+// the kit's reduced-motion toggle writes (0) to stop the travel, `overview_anim_speed` being
+// plugin-owned config the toggle cannot reach otherwise.
+inline constexpr int         CARD_REORDER_MS_DEFAULT         = 160;
 // Recapture a tile when its workspace produced surface damage while the overview is open.
 // Hyprland renders only the visible workspace, so a hidden workspace's clients commit
 // exactly when they have something new to show (its commits carry damage or they are not

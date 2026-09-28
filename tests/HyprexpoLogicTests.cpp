@@ -1289,6 +1289,59 @@ int main() {
         expect(Hyprexpo::planCardReorder(5, 1, 3).size() == 3, "one move per slot whose contents change");
     }
 
+    {
+        // The visual half of the reorder (Hyprexpo::cardShiftFor): while the card is in the air the
+        // cards between the dragged slot and the target slide one slot over, and the gap lands exactly
+        // on the target. Checking it against `planCardReorder` over every drag in a small grid is what
+        // keeps the preview honest — the drawn arrangement must be the one the drop commits.
+        for (size_t count = 2; count <= 6; ++count) {
+            for (size_t from = 0; from < count; ++from) {
+                for (size_t to = 0; to < count; ++to) {
+                    // The dragged card itself is in the air (the renderer does not draw it on the grid),
+                    // so `drawn` holds -1 for it: what has to be a permutation is the *rest*, and the
+                    // slot left free has to be the target — that gap is what the drop fills.
+                    std::vector<int>    drawn(count, -1);
+                    std::vector<size_t> taken;
+                    for (size_t i = 0; i < count; ++i) {
+                        if (i == from)
+                            continue;
+                        drawn[i] = (int)i + Hyprexpo::cardShiftFor(count, from, (int)to, i);
+                        expect(drawn[i] >= 0 && drawn[i] < (int)count, "every card draws inside the grid");
+                        expect(std::count(taken.begin(), taken.end(), (size_t)drawn[i]) == 0, "no two cards draw in one slot");
+                        taken.push_back((size_t)drawn[i]);
+                    }
+                    expect(taken.size() == count - 1, "the dragged card is the only one not on the grid");
+                    expect(std::count(taken.begin(), taken.end(), to) == 0, "the target slot is the gap the drop fills");
+
+                    std::vector<int> contents(count);
+                    for (size_t i = 0; i < count; ++i)
+                        contents[i] = (int)i;
+                    for (const auto& move : Hyprexpo::planCardReorder(count, from, to))
+                        contents[move.destination] = (int)move.source; // each slot's *original* contents
+
+                    for (size_t slot = 0; slot < count; ++slot) {
+                        if (slot == to) {
+                            expect(contents[slot] == (int)from, "the gap is where the dragged card's contents land");
+                            continue;
+                        }
+                        const auto it = std::find(drawn.begin(), drawn.end(), (int)slot);
+                        expect(it != drawn.end(), "every slot but the target is drawn");
+                        if (it != drawn.end())
+                            expect(contents[slot] == (int)std::distance(drawn.begin(), it), "the drawn arrangement is the one the drop commits");
+                    }
+                }
+            }
+        }
+
+        expect(Hyprexpo::cardShiftFor(5, 1, -1, 2) == 0, "no target: nothing slides");
+        expect(Hyprexpo::cardShiftFor(5, 2, 2, 1) == 0, "hovering your own slot: nothing slides");
+        expect(Hyprexpo::cardShiftFor(5, 1, 3, 2) == -1 && Hyprexpo::cardShiftFor(5, 1, 3, 3) == -1 && Hyprexpo::cardShiftFor(5, 1, 3, 4) == 0,
+               "dragged forward: the cards it passed over slide back, the rest stay");
+        expect(Hyprexpo::cardShiftFor(5, 3, 0, 0) == 1 && Hyprexpo::cardShiftFor(5, 3, 0, 2) == 1 && Hyprexpo::cardShiftFor(5, 3, 0, 3) == 0,
+               "dragged backward: they slide forward, the dragged card and the rest stay");
+        expect(Hyprexpo::cardShiftFor(3, 0, 9, 1) == 0, "a target past the end slides nothing");
+    }
+
     if (failures != 0)
         return 1;
 

@@ -446,7 +446,20 @@ void COverview::fullRender() {
             const int id = x + y * SHAPE.cols;
             if (id < 0 || id >= (int)images.size())
                 continue;
+
+            // The card in the air is drawn once, under the pointer (further down): its slot shows the
+            // gap the drop would fill, so nothing of it belongs on the grid — not the capture, not the
+            // label, and not the badge box the hit test reads (`badgeBoxes` is rebuilt every frame).
+            // Leaving `tileBoxes[id]` empty is what makes borders and labels skip it too.
+            const bool LIFTED = cardDrag.active && cardDrag.moved && (int)id == cardDrag.source;
+            if (LIFTED)
+                continue;
+
             CBox texbox = tileBoxForIndex(id, SIZE, GAPSIZE, OUTER, true);
+            // Where the card is *drawn* — a badge drag slides the cards between the dragged slot and
+            // the pointer one slot over (`tileOffsets`, logical units, so before the scale).
+            if (id < (int)tileOffsets.size() && tileOffsets[id])
+                texbox.translate(tileOffsets[id]->value());
             texbox.scale(MON->m_scale).translate(pos->value());
             texbox.round();
             tileBoxes[id] = texbox;
@@ -884,18 +897,19 @@ void COverview::fullRender() {
         }
     }
 
-    // Card drag: the source slot is dimmed, the slot it would land in is outlined, and a copy of the
-    // card follows the pointer, held where it was grabbed.
-    if (cardDrag.active && cardDrag.moved && isTileValid(cardDrag.source) && cardDrag.source < (int)tileBoxes.size()) {
-        const CBox& SOURCEBOX = tileBoxes[cardDrag.source];
-        Render::GL::g_pHyprOpenGL->renderRect(SOURCEBOX, CHyprColor{BG_COLOR.r, BG_COLOR.g, BG_COLOR.b, 0.6}, {.round = BASE_ROUND_SCALED, .roundingPower = ROUND_PWR});
-
+    // Card drag: the slot the card would land in is outlined, and a copy of the card follows the
+    // pointer, held where it was grabbed. The grid does not draw the card while it is in the air (the
+    // tile loop skips it), so its slot is the gap the drop fills and this copy is where the card is —
+    // the box comes from the layout, not from `tileBoxes`, which is empty for it by then.
+    if (cardDrag.active && cardDrag.moved && isTileValid(cardDrag.source)) {
         if (cardDrag.target != -1 && cardDrag.target != cardDrag.source)
             drawBorderForID(cardDrag.target, std::string{*PBCOLFOC}, std::string{*PBGREFOC}, RND_FOC, std::max(2, (int)**PBWIDTH + 1));
 
         if (images[cardDrag.source].fb) {
-            const Vector2D TOPLEFT = cardDrag.pointerLocal - cardDrag.grabOffset;
-            CBox           lifted{TOPLEFT.x * MON->m_scale + pos->value().x, TOPLEFT.y * MON->m_scale + pos->value().y, SOURCEBOX.w, SOURCEBOX.h};
+            const auto     SOURCEBOX = tileBoxForIndex(cardDrag.source, SIZE, GAPSIZE, OUTER, true);
+            const Vector2D TOPLEFT   = cardDrag.pointerLocal - cardDrag.grabOffset;
+            CBox           lifted{TOPLEFT.x * MON->m_scale + pos->value().x, TOPLEFT.y * MON->m_scale + pos->value().y, SOURCEBOX.w * MON->m_scale,
+                        SOURCEBOX.h * MON->m_scale};
             lifted.round();
             CRegion liftedDamage{0, 0, INT16_MAX, INT16_MAX};
             Render::GL::g_pHyprOpenGL->renderTextureInternal(images[cardDrag.source].fb->getTexture(), lifted,

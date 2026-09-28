@@ -93,6 +93,16 @@ anywhere else on a card still drags a single window. Dropping the card on anothe
 the dragged card lands in that slot and the cards in between shift by one. A plain click on the
 badge still selects the card.
 
+The cards move while the drag is open. The ones between the badge's slot and the one under the
+pointer slide a slot over, so the slot the drop would use is an open gap before you let go, and the
+lifted card itself follows the pointer. The move is a preview only — nothing is committed until the
+release, and a drop outside the grid (or on the card's own slot) puts every card back. On a real
+drop the new order *arrives*: the card lands from the pointer and the others settle from where they
+had slid, on the same curve the overview's own zoom and the workspace landing use. That duration is
+`plugin:hyprexpo:card_reorder_ms` (ms, `160` by default, `0` = the cards jump). It is a key of its
+own rather than a share of `overview_anim_speed` because it is a one-slot shuffle, not the camera
+zoom — and because a plain config key is what an accessibility switch can zero.
+
 A slot is a workspace, and workspace ids cannot change, so the reorder moves **windows**: the
 dragged workspace's windows move into the target slot's workspace and every workspace in between
 passes its windows one slot along. Anything that orders workspaces by id (keybinds, bars, this grid)
