@@ -527,8 +527,10 @@ void COverview::updateCardShiftOffsets() {
 // The drop. `slot` is where the dragged card's contents landed (-1 when the drag committed nothing);
 // that card starts where the pointer left it and glides into its box, and every card that slid a slot
 // over glides back to its own — the arrangement arriving instead of jumping. The captures behind those
-// cards are re-taken asynchronously, so a card can show its previous contents for a frame or two while
-// it moves; the drop committed the new order either way.
+// cards are re-taken asynchronously (`redrawDraggedWorkspace`), so in principle a card could still be
+// showing the workspace it used to hold; measured in the sandbox at `card_reorder_ms = 1000` — the
+// slowest a glide can be — the new captures were there from the first frame of it, so the glide only
+// ever shows the cards moving.
 void COverview::landCardDrag(int slot, const Vector2D& from) {
     for (size_t id = 0; id < tileOffsets.size(); ++id) {
         const auto& OFFSET = tileOffsets[id];
