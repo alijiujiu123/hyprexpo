@@ -524,26 +524,42 @@ void COverview::updateCardShiftOffsets() {
     }
 }
 
-// The drop. `slot` is where the dragged card's contents landed (-1 when the drag committed nothing);
-// that card starts where the pointer left it and glides into its box, and every card that slid a slot
-// over glides back to its own — the arrangement arriving instead of jumping. The captures behind those
-// cards are re-taken asynchronously (`redrawDraggedWorkspace`), so in principle a card could still be
-// showing the workspace it used to hold; measured in the sandbox at `card_reorder_ms = 1000` — the
-// slowest a glide can be — the new captures were there from the first frame of it, so the glide only
-// ever shows the cards moving.
-void COverview::landCardDrag(int slot, const Vector2D& from) {
+// The drop. Each slot in `moves` now holds the contents of `move.source`, so it starts where those
+// contents were *drawn* a moment ago - their own box plus the preview shift they were showing - and
+// glides from there into its own box; the dragged card starts where the pointer left it (`from`). A
+// card that had already slid into the gap is therefore drawn exactly where it was and does not move
+// at all: animating the preview shift back to 0 instead (what this did up to v0.56.2+29) re-drew each
+// in-between card's new contents one slot back and slid them forward again, a swipe inside every card
+// between the two slots. Every other slot goes home (it was not shifted, or the drag gave up).
+// The captures behind those cards are re-taken asynchronously (`redrawDraggedWorkspace`); measured in
+// the sandbox at `card_reorder_ms = 1000` the new captures were there from the first frame.
+void COverview::landCardDrag(const std::vector<Hyprexpo::SSlotMove>& moves, int slot, const Vector2D& from) {
+    const auto               SIZE  = size->value();
+    const auto               INSET = currentOuterInset();
+    std::vector<Vector2D>    start(tileOffsets.size());
+    std::vector<bool>        landing(tileOffsets.size(), false);
+    for (const auto& move : moves) {
+        if (move.source >= tileOffsets.size() || move.destination >= tileOffsets.size() || !tileOffsets[move.source])
+            continue;
+        const auto DRAWN          = tilePosForID((int)move.source, SIZE, GAP_WIDTH, INSET, true) + tileOffsets[move.source]->value();
+        start[move.destination]   = DRAWN - tilePosForID((int)move.destination, SIZE, GAP_WIDTH, INSET, true);
+        landing[move.destination] = true;
+    }
+    if (slot >= 0 && (size_t)slot < tileOffsets.size()) {
+        start[slot]   = from;
+        landing[slot] = true;
+    }
+
     for (size_t id = 0; id < tileOffsets.size(); ++id) {
         const auto& OFFSET = tileOffsets[id];
         if (!OFFSET)
             continue;
 
-        if ((int)id == slot && id < images.size()) {
-            // Where the pointer left it, then home: the first write is the *start* of the glide, so it
-            // must not animate (the card would travel from its slot to the pointer and stay there).
-            OFFSET->setValueAndWarp(from);
-            *OFFSET = Vector2D{0, 0};
-        } else
-            *OFFSET = Vector2D{0, 0};
+        // Where the contents were, then home: the first write is the *start* of the glide, so it must
+        // not animate (the card would travel from its slot to there and stay).
+        if (landing[id] && id < images.size())
+            OFFSET->setValueAndWarp(start[id]);
+        *OFFSET = Vector2D{0, 0};
     }
 }
 
@@ -565,7 +581,7 @@ bool COverview::finishCardDrag() {
     const auto MOVES = Hyprexpo::planCardReorder(images.size(), (size_t)DRAG.source, (size_t)DRAG.target);
     for (const auto& move : MOVES) {
         if (!isTileValid((int)move.source) || !isTileValid((int)move.destination)) {
-            landCardDrag(-1, {}); // the drag gave up: the cards it moved out of the way go home
+            landCardDrag({}, -1, {}); // the drag gave up: the cards it moved out of the way go home
             return true;
         }
     }
@@ -634,10 +650,9 @@ bool COverview::finishCardDrag() {
         redrawDraggedWorkspace(images[move.destination].workspaceID);
     }
     // The new order *arrives*: the slot the card landed in starts where the pointer left it (the lifted
-    // copy's top-left, which is what the pointer carried) and glides into its box, while the cards that
-    // slid a slot over glide back to their own. Their contents already changed with the windows, so this
-    // is only where each card is drawn.
-    landCardDrag(DRAG.target, DRAG.pointerLocal - DRAG.grabOffset - tilePosForID(DRAG.target, size->value(), GAP_WIDTH, currentOuterInset(), true));
+    // copy's top-left, which is what the pointer carried) and glides into its box; the cards that slid
+    // a slot over already stand where their new contents belong, so they stay put.
+    landCardDrag(MOVES, DRAG.target, DRAG.pointerLocal - DRAG.grabOffset - tilePosForID(DRAG.target, size->value(), GAP_WIDTH, currentOuterInset(), true));
     Log::logger->log(Log::INFO, "[hyprexpo] card reorder: slot {} -> {} ({} moves)", DRAG.source, DRAG.target, MOVES.size());
     return true;
 }

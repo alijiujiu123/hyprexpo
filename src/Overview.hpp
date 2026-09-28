@@ -155,7 +155,7 @@ class COverview final : public IOverviewSession {
     void       updateCardShiftOffsets();
     // The drop: `slot` (or -1 for a drag that commits nothing) starts at `from` — a pointer-relative
     // card delta — and every card glides home.
-    void       landCardDrag(int slot, const Vector2D& from);
+    void       landCardDrag(const std::vector<Hyprexpo::SSlotMove>& moves, int slot, const Vector2D& from);
     // Card reorder: press on a card's badge and drag the whole card to another slot (dynamic grid).
     bool       beginCardDrag();
     void       updateCardDrag();
