@@ -19,7 +19,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <filesystem>
 #include <format>
+#include <fstream>
 
 using namespace std::chrono_literals;
 
@@ -436,6 +438,22 @@ bool COverview::moveWindowBetweenVisibleIndices(size_t sourceIndex, size_t targe
 // order. The active workspace keeps its id - switching it while the overview is open closes the
 // overview (onWorkspaceChange) - so you stay in your slot and its contents may change.
 
+// Every press on the grid leaves one line in $XDG_RUNTIME_DIR/hyprexpo-drag.log: where the pointer was,
+// the badge boxes it was tested against and which drag it started. Hyprland's own log is off on this
+// machine, and a badge press that turns into a window drag on the touchpad (issue #15) did not
+// reproduce with a virtual pointer, so the only way to see the decision is from the real device.
+void appendDragLog(const std::string& line) {
+    static const auto PATH = [] {
+        const char* RUNTIME = std::getenv("XDG_RUNTIME_DIR");
+        return std::string{RUNTIME ? RUNTIME : "/tmp"} + "/hyprexpo-drag.log";
+    }();
+    constexpr std::uintmax_t MAX_BYTES = 64 * 1024;
+    std::error_code          ERR;
+    const auto               SIZE = std::filesystem::file_size(PATH, ERR);
+    if (std::ofstream FILE{PATH, !ERR && SIZE > MAX_BYTES ? std::ios::trunc : std::ios::app}; FILE)
+        FILE << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count() << ' ' << line << '\n';
+}
+
 bool COverview::cardReorderAvailable() const {
     static auto* const* PMRUSORT = (Hyprlang::INT* const*)HyprlandAPI::getConfigValue(PHANDLE, "plugin:hyprexpo:mru_sort")->getDataStaticPtr();
     // Only the dynamic grid lists this screen's workspaces in id order; mru_sort breaks that order.
@@ -444,12 +462,20 @@ bool COverview::cardReorderAvailable() const {
 
 bool COverview::beginCardDrag() {
     const auto MON = pMonitor.lock();
-    if (!MON || cardDrag.active || !cardReorderAvailable())
+    if (!MON || cardDrag.active || !cardReorderAvailable()) {
+        appendDragLog(std::format("press: card drag unavailable (mon={} active={} available={})", (bool)MON, cardDrag.active, cardReorderAvailable()));
         return false;
+    }
 
     const Vector2D LOCAL = g_pInputManager->getMouseCoordsInternal() - MON->m_position;
     const Vector2D POINT = LOCAL - pos->value() / MON->m_scale; // tile space, like updateHoveredFromMouse
     constexpr double SLOP = 6.0;                                // badges are small; forgive a near miss
+
+    std::string badges;
+    for (size_t id = 0; id < badgeBoxes.size() && id < 3; ++id)
+        badges += std::format(" b{}=({:.0f},{:.0f} {:.0f}x{:.0f})", id, badgeBoxes[id].x, badgeBoxes[id].y, badgeBoxes[id].w, badgeBoxes[id].h);
+    appendDragLog(std::format("press local=({:.1f},{:.1f}) point=({:.1f},{:.1f}) pos=({:.1f},{:.1f}) size=({:.0f},{:.0f}) scale={} badges={}{}", LOCAL.x, LOCAL.y, POINT.x,
+                              POINT.y, pos->value().x, pos->value().y, size->value().x, size->value().y, MON->m_scale, badgeBoxes.size(), badges));
 
     for (size_t id = 0; id < badgeBoxes.size() && id < images.size(); ++id) {
         const auto& box = badgeBoxes[id];
@@ -473,8 +499,10 @@ bool COverview::beginCardDrag() {
                 offset->setValueAndWarp(Vector2D{0, 0});
         Pointer::Cursor::overrideController->setOverride("grabbing", Pointer::Cursor::CURSOR_OVERRIDE_UNKNOWN);
         damage();
+        appendDragLog(std::format("  card drag: slot {}", id));
         return true;
     }
+    appendDragLog("  no badge hit -> window drag");
     return false;
 }
 

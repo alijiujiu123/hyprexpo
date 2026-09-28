@@ -79,6 +79,10 @@ std::vector<SPinnedWindowPreviewState> applyPinnedWindowPreviewState(bool showPi
 void restorePinnedWindowPreviewState(const std::vector<SPinnedWindowPreviewState>& states);
 bool windowVisibleOnWorkspace(const PHLWINDOW& window, const PHLWORKSPACE& workspace);
 void settleWorkspaceMoveAnimation(const PHLWINDOW& window);
+void appendDragLog(const std::string& line);
+void registerOverviewEvent();
+void unregisterOverviewEvent();
+void publishOverviewCount();
 void settleWorkspaceMoveAnimations();
 std::vector<SWindowPreviewState> applyWorkspaceWindowGoalState(const PHLWORKSPACE& workspace);
 void restoreWorkspaceWindowGoalState(const std::vector<SWindowPreviewState>& states);

@@ -744,6 +744,7 @@ IOverviewSession* createOverview(const PHLMONITOR& monitor, bool swipe) {
     if (!session)
         return nullptr;
     g_overviews.push_back(std::move(session));
+    publishOverviewCount();
 
     // The compositor's solitary fast path has to be re-evaluated now: with an overview up, this
     // monitor must render through renderWorkspace (see hkRecheckSolitary in main.cpp).
@@ -973,6 +974,7 @@ void destroyOverview(IOverviewSession* overview) {
 
     auto OWNER = std::move(*IT);
     g_overviews.erase(IT);
+    publishOverviewCount();
 
     // Back to whatever the compositor would have decided without us.
     if (MON)
@@ -990,6 +992,47 @@ void destroyAllOverviews() {
     for (const auto& owner : OWNERS)
         owner->prepareForTeardown();
     OWNERS.clear();
+    publishOverviewCount();
+}
+
+// `hyprexpo.overview(int)`: how many overview sessions are open, emitted on every change. It is for the
+// plugins that act on pointer input in screen space — hyprbars' title bars: with the grid drawn over the
+// screen, a press on a top-row badge is also a press on the active workspace's title bar underneath,
+// which started a window move under the card drag (issue #15). Plugins cannot see each other's symbols,
+// so this is the channel (the same shape as edgebounce.slide). A subscriber must treat the event going
+// away (`pluginEventRemoved`, i.e. we unloaded) as 0.
+static SP<Event::CEventBus::CCustomEvent> g_overviewEvent;
+
+// This file maps `HyprlandAPI` onto the config compat layer (the #define above), which has no event
+// calls; these two reach the real API.
+#pragma push_macro("HyprlandAPI")
+#undef HyprlandAPI
+static bool addPluginEvent(const SP<Event::CEventBus::CCustomEvent>& event) {
+    return HyprlandAPI::addEvent(PHANDLE, event);
+}
+static void removePluginEvent(const std::string& name) {
+    HyprlandAPI::removeEvent(PHANDLE, name);
+}
+#pragma pop_macro("HyprlandAPI")
+
+void registerOverviewEvent() {
+    using E         = Event::CEventBus::CCustomEvent;
+    g_overviewEvent = makeShared<E>("hyprexpo.overview", std::vector<E::eType>{E::TYPE_INT});
+    if (!addPluginEvent(g_overviewEvent)) {
+        Log::logger->log(Log::ERR, "[hyprexpo] could not register the hyprexpo.overview event");
+        g_overviewEvent.reset();
+    }
+}
+
+void unregisterOverviewEvent() {
+    if (g_overviewEvent)
+        removePluginEvent("hyprexpo.overview");
+    g_overviewEvent.reset();
+}
+
+void publishOverviewCount() {
+    if (g_overviewEvent)
+        (void)g_overviewEvent->emit({static_cast<int>(g_overviews.size())});
 }
 
 void removeOverview(WP<Hyprutils::Animation::CBaseAnimatedVariable> thisptr) {
@@ -1534,6 +1577,7 @@ COverview::COverview(PHLWORKSPACE startedOn_, PHLMONITOR monitor_, bool swipe_, 
         }
 
         if (event.state == WL_POINTER_BUTTON_STATE_PRESSED) {
+            appendDragLog(std::format("button {} pressed at ({:.1f},{:.1f}) target={} drag_drop={}", event.button, GLOBAL.x, GLOBAL.y, TARGET != nullptr, **PDRAGDROPENABLE));
             // The badge picks up the whole card; anywhere else on the card picks up a window.
             if (**PDRAGDROPENABLE && TARGET && !TARGET->beginCardDrag())
                 TARGET->beginWindowDrag();

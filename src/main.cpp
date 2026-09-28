@@ -255,6 +255,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
 
     registerHyprexpoConfigValues();
 
+    registerOverviewEvent();
+
     Hyprexpo::AppIcons::init();
 
     HyprlandAPI::reloadConfig();
@@ -268,6 +270,7 @@ APICALL EXPORT void PLUGIN_EXIT() {
     disableExpoGestureRegistration();
 
     destroyAllOverviews();
+    unregisterOverviewEvent();
     g_pHyprRenderer->m_renderPass.removeAllOfType("COverviewPassElement");
     Hyprexpo::AppIcons::shutdown();
 
