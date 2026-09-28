@@ -79,6 +79,9 @@ void registerHyprexpoConfigValues() {
     addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:card_reorder_ms", "card reorder glide in ms (0 = the cards jump)",
                                                          HyprexpoConfig::CARD_REORDER_MS_DEFAULT,
                                                          Config::Values::SIntValueOptions{.min = 0, .max = 2000}));
+    addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:card_land_jelly", "landing card: lifted this many % larger, springs back with a wobble (0 = off)",
+                                                         HyprexpoConfig::CARD_LAND_JELLY_DEFAULT,
+                                                         Config::Values::SIntValueOptions{.min = 0, .max = 30}));
     addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:dirty_refresh", "recapture tiles whose workspace produced new surface damage",
                                                          HyprexpoConfig::DIRTY_REFRESH_DEFAULT, Config::Values::SIntValueOptions{.min = 0, .max = 1}));
     addConfigValue(makeShared<Config::Values::CIntValue>("plugin:hyprexpo:dirty_cooldown_ms", "minimum delay between two recaptures of the same tile",

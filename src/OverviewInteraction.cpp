@@ -471,6 +471,9 @@ bool COverview::beginCardDrag() {
         for (const auto& offset : tileOffsets)
             if (offset)
                 offset->setValueAndWarp(Vector2D{0, 0});
+        for (const auto& scale : tileScales)
+            if (scale)
+                scale->setValueAndWarp(1.F);
         Pointer::Cursor::overrideController->setOverride("grabbing", Pointer::Cursor::CURSOR_OVERRIDE_UNKNOWN);
         damage();
         return true;
@@ -510,6 +513,9 @@ void COverview::updateCardShiftOffsets() {
         if (!OFFSET)
             continue;
 
+        // A previous landing may have left this card on the jelly's spring.
+        OFFSET->setConfig(Hyprexpo::Animation::configForCardReorder());
+
         const int SHIFT = Hyprexpo::cardShiftFor(images.size(), (size_t)cardDrag.source, cardDrag.target, id);
         if (SHIFT == 0) {
             *OFFSET = Vector2D{0, 0};
@@ -532,6 +538,8 @@ void COverview::updateCardShiftOffsets() {
 // slowest a glide can be — the new captures were there from the first frame of it, so the glide only
 // ever shows the cards moving.
 void COverview::landCardDrag(int slot, const Vector2D& from) {
+    const int JELLY = Hyprexpo::Animation::cardLandJellyPct();
+
     for (size_t id = 0; id < tileOffsets.size(); ++id) {
         const auto& OFFSET = tileOffsets[id];
         if (!OFFSET)
@@ -540,8 +548,17 @@ void COverview::landCardDrag(int slot, const Vector2D& from) {
         if ((int)id == slot && id < images.size()) {
             // Where the pointer left it, then home: the first write is the *start* of the glide, so it
             // must not animate (the card would travel from its slot to the pointer and stay there).
+            // With the jelly on, it lands on springs: from the lifted size (the size the card had in
+            // the air) back to 1, squashing past it — the wobble is the scale, the slide barely overshoots.
+            OFFSET->setConfig(JELLY > 0 ? Hyprexpo::Animation::configForCardLand() : Hyprexpo::Animation::configForCardReorder());
             OFFSET->setValueAndWarp(from);
             *OFFSET = Vector2D{0, 0};
+
+            if (JELLY > 0 && id < tileScales.size() && tileScales[id]) {
+                tileScales[id]->setConfig(Hyprexpo::Animation::configForCardJelly());
+                tileScales[id]->setValueAndWarp(1.F + JELLY / 100.F);
+                *tileScales[id] = 1.F;
+            }
         } else
             *OFFSET = Vector2D{0, 0};
     }

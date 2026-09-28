@@ -460,6 +460,9 @@ void COverview::fullRender() {
             // the pointer one slot over (`tileOffsets`, logical units, so before the scale).
             if (id < (int)tileOffsets.size() && tileOffsets[id])
                 texbox.translate(tileOffsets[id]->value());
+            // The landing card's jelly (`card_land_jelly`); 1 for every card at rest.
+            if (id < (int)tileScales.size() && tileScales[id] && tileScales[id]->value() != 1.F)
+                texbox.scaleFromCenter(tileScales[id]->value());
             texbox.scale(MON->m_scale).translate(pos->value());
             texbox.round();
             tileBoxes[id] = texbox;
@@ -910,6 +913,9 @@ void COverview::fullRender() {
             const Vector2D TOPLEFT   = cardDrag.pointerLocal - cardDrag.grabOffset;
             CBox           lifted{TOPLEFT.x * MON->m_scale + pos->value().x, TOPLEFT.y * MON->m_scale + pos->value().y, SOURCEBOX.w * MON->m_scale,
                         SOURCEBOX.h * MON->m_scale};
+            // In the air it is drawn at the size the jelly lands from, so the drop does not pop.
+            if (const int JELLY = Hyprexpo::Animation::cardLandJellyPct(); JELLY > 0)
+                lifted.scaleFromCenter(1.0 + JELLY / 100.0);
             lifted.round();
             CRegion liftedDamage{0, 0, INT16_MAX, INT16_MAX};
             Render::GL::g_pHyprOpenGL->renderTextureInternal(images[cardDrag.source].fb->getTexture(), lifted,

@@ -103,6 +103,15 @@ had slid, on the same curve the overview's own zoom and the workspace landing us
 own rather than a share of `overview_anim_speed` because it is a one-slot shuffle, not the camera
 zoom — and because a plain config key is what an accessibility switch can zero.
 
+The landing card can wobble like jelly: `plugin:hyprexpo:card_land_jelly` (percent, `0` by default =
+off, up to `30`) draws the card in the air that much larger, and on the drop it springs back to its
+size through an underdamped spring — it squashes past its slot's size, swells back and settles in
+about 0.6 s — while it slides into the slot on a spring that barely overshoots. Only the landing card
+wobbles; the cards that made room keep `card_reorder_ms`. The two springs are `hyprexpoCardJelly`
+(stiffness 320, damping 11) and `hyprexpoCardLand` (260, 24); defining a spring of the same name
+(`hl.curve("hyprexpoCardJelly", { type = "spring", … })`) replaces the plugin's. With
+`card_reorder_ms = 0` the jelly is off too, whatever this key says.
+
 A slot is a workspace, and workspace ids cannot change, so the reorder moves **windows**: the
 dragged workspace's windows move into the target slot's workspace and every workspace in between
 passes its windows one slot along. Anything that orders workspaces by id (keybinds, bars, this grid)
