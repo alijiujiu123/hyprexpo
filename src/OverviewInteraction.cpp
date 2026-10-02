@@ -336,6 +336,40 @@ bool COverview::finishWindowDrag() {
     const auto TRANSITION = Hyprexpo::transitionOverviewDrag(STATE, {.type = Hyprexpo::EOverviewDragEventType::Release}, liveOverviewMonitorKeys());
     const bool CONSUMED   = STATE.moved;
 
+    // The copy that was following the pointer glides on from here: into its place in the card it was
+    // dropped on, or home when the drop moves nothing. Built before anything moves, from the capture the
+    // lifted copy was drawn from.
+    SWindowLanding landing;
+    bool           moved = false;
+    if (STATE.moved && g_overviewDrag.window) {
+        auto* const SRCOV  = gridOverviewForMonitorKey(STATE.sourceMonitorKey);
+        auto* const HEREOV = gridOverviewForGlobalPoint(g_overviewDrag.pointerGlobal);
+        const auto  SRCMON = SRCOV ? SRCOV->pMonitor.lock() : PHLMONITOR{};
+        const auto  HEREMON = HEREOV ? HEREOV->pMonitor.lock() : PHLMONITOR{};
+        const int   SRC    = STATE.sourceTileIndex;
+        const int   MS     = (int)std::clamp<Hyprlang::INT>(0, CompatHyprlandAPI::intValue("plugin:hyprexpo:card_reorder_ms"), 2000);
+        if (SRCOV && HEREOV && SRCMON && HEREMON && MS > 0 && SRCOV->isTileValid(SRC) && SRCOV->images[SRC].fb) {
+            const auto     WINBOX  = g_overviewDrag.window->getWindowMainSurfaceBox();
+            const auto     SRCTILE = SRCOV->tileBoxForIndex(SRC, SRCOV->size->value(), SRCOV->GAP_WIDTH, SRCOV->currentOuterInset(), true);
+            const double   SCALE   = SRCTILE.w / std::max(1.0, SRCMON->m_size.x);
+            const Vector2D POINTER = g_overviewDrag.pointerGlobal - HEREMON->m_position - HEREOV->pos->value() / HEREMON->m_scale;
+            const Vector2D TOPLEFT = POINTER - g_overviewDrag.grabOffset * SCALE;
+            landing.active     = true;
+            landing.monitorKey = overviewMonitorKey(HEREMON);
+            landing.texture    = SRCOV->images[SRC].fb->getTexture();
+            landing.uvTopLeft  = {std::clamp((WINBOX.x - SRCMON->m_position.x) / SRCMON->m_size.x, 0.0, 1.0), std::clamp((WINBOX.y - SRCMON->m_position.y) / SRCMON->m_size.y, 0.0, 1.0)};
+            landing.uvBottomRight = {std::clamp((WINBOX.x + WINBOX.w - SRCMON->m_position.x) / SRCMON->m_size.x, 0.0, 1.0),
+                                     std::clamp((WINBOX.y + WINBOX.h - SRCMON->m_position.y) / SRCMON->m_size.y, 0.0, 1.0)};
+            landing.from  = {TOPLEFT.x, TOPLEFT.y, WINBOX.w * SCALE, WINBOX.h * SCALE};
+            landing.start = std::chrono::steady_clock::now();
+            landing.ms    = MS;
+            // Home: the window's own place in the card it came from (only drawable on its own screen).
+            landing.to = {SRCTILE.x + (WINBOX.x - SRCMON->m_position.x) * SCALE, SRCTILE.y + (WINBOX.y - SRCMON->m_position.y) * SCALE, WINBOX.w * SCALE, WINBOX.h * SCALE};
+            if (HEREOV != SRCOV)
+                landing.to = landing.from; // no home on another screen: it just fades where it is
+        }
+    }
+
     if (TRANSITION.drop && g_overviewDrag.window && reinterpret_cast<uint64_t>(g_overviewDrag.window.get()) == TRANSITION.drop->windowKey) {
         auto* const SOURCEOV  = gridOverviewForMonitorKey(TRANSITION.drop->sourceMonitorKey);
         auto* const TARGETOV  = gridOverviewForMonitorKey(TRANSITION.drop->targetMonitorKey);
@@ -365,9 +399,35 @@ bool COverview::finishWindowDrag() {
                 settleWorkspaceMoveAnimation(g_overviewDrag.window);
                 SOURCEOV->redrawDraggedWorkspace(SOURCEWORKSPACEID);
                 TARGETOV->redrawDraggedWorkspace(TARGETWORKSPACEID);
+
+                // Where it lands: the drop-intent box inside the target card, from the same pointer.
+                if (landing.active && TARGETMON && landing.monitorKey == overviewMonitorKey(TARGETMON)) {
+                    const auto     TILE    = TARGETOV->tileBoxForIndex(TARGET, TARGETOV->size->value(), TARGETOV->GAP_WIDTH, TARGETOV->currentOuterInset(), true);
+                    const Vector2D POINTER = g_overviewDrag.pointerGlobal - TARGETMON->m_position - TARGETOV->pos->value() / TARGETMON->m_scale;
+                    const auto     SRCMON  = SOURCEOV->pMonitor.lock();
+                    const double   SCALE   = landing.from.w / std::max(1.0, g_overviewDrag.window->getWindowMainSurfaceBox().w);
+                    const auto     GEO     = Hyprexpo::computeDropIntentGeometry({
+                            .targetValid     = true,
+                            .pointerLocal    = {POINTER.x, POINTER.y},
+                            .targetTileLocal = {TILE.x, TILE.y, TILE.w, TILE.h},
+                            .workspaceSize   = {TARGETMON->m_size.x, TARGETMON->m_size.y},
+                            .windowSize      = {landing.from.w / std::max(1e-6, SCALE), landing.from.h / std::max(1e-6, SCALE)},
+                            .grabOffset      = {g_overviewDrag.grabOffset.x, g_overviewDrag.grabOffset.y},
+                    });
+                    (void)SRCMON;
+                    if (GEO.valid)
+                        landing.to = {GEO.targetProxyLocal.x, GEO.targetProxyLocal.y, GEO.targetProxyLocal.w, GEO.targetProxyLocal.h};
+                }
             }
         }
     }
+
+    if (landing.active) {
+        g_windowLanding = std::move(landing);
+        if (auto* const OV = gridOverviewForMonitorKey(g_windowLanding.monitorKey))
+            OV->damage();
+    }
+    (void)moved;
 
     resetOverviewDrag(Hyprexpo::EOverviewDragEventType::Release);
     return CONSUMED;

@@ -858,42 +858,60 @@ void COverview::fullRender() {
         drawBorderForID(g_overviewDrag.state.sourceTileIndex, sourceBorder, std::string{*PBGREFOC}, RND_FOC, sourceWidth);
     }
 
-    if (g_overviewDrag.window && g_overviewDrag.state.targetMonitorKey == OVERVIEWKEY && isTileValid(g_overviewDrag.state.targetTileIndex)) {
-        const auto windowBox = g_overviewDrag.window->getWindowMainSurfaceBox();
-        if (windowBox.w > 0 && windowBox.h > 0) {
-            const int  TARGET             = g_overviewDrag.state.targetTileIndex;
-            const auto targetTileBox      = tileBoxForIndex(TARGET, SIZE, GAPSIZE, OUTER, true);
-            const Vector2D pointerLocal   = g_overviewDrag.pointerGlobal - MON->m_position;
-            const auto dropIntent = Hyprexpo::computeDropIntentGeometry({
-                .targetValid     = true,
-                .pointerLocal    = {pointerLocal.x, pointerLocal.y},
-                .targetTileLocal = {targetTileBox.x, targetTileBox.y, targetTileBox.w, targetTileBox.h},
-                .workspaceSize   = {MON->m_size.x, MON->m_size.y},
-                .windowSize      = {windowBox.w, windowBox.h},
-                .grabOffset      = {g_overviewDrag.grabOffset.x, g_overviewDrag.grabOffset.y},
-            });
-            if (dropIntent.valid) {
-                CBox proxy{
-                    dropIntent.targetProxyLocal.x,
-                    dropIntent.targetProxyLocal.y,
-                    dropIntent.targetProxyLocal.w,
-                    dropIntent.targetProxyLocal.h,
-                };
-                proxy.scale(MON->m_scale).translate(pos->value());
-                proxy.round();
+    // Window drag, drawn the way a card drag is: the target card is outlined and a copy of the window
+    // (cropped out of its card's capture) follows the pointer, held where it was grabbed.
+    {
+        const Vector2D POINTERLOCAL = g_overviewDrag.pointerGlobal - MON->m_position;
+        const bool     POINTERHERE  = POINTERLOCAL.x >= 0 && POINTERLOCAL.y >= 0 && POINTERLOCAL.x < MON->m_size.x && POINTERLOCAL.y < MON->m_size.y;
+        auto* const    SRCOV        = g_overviewDrag.window && g_overviewDrag.state.moved ? gridOverviewForMonitorKey(g_overviewDrag.state.sourceMonitorKey) : nullptr;
+        const auto     SRCMON       = SRCOV ? SRCOV->pMonitor.lock() : PHLMONITOR{};
+        const int      SRC          = g_overviewDrag.state.sourceTileIndex;
 
-                const int maxProxyRound = std::max(0, (int)std::floor(std::min(proxy.w, proxy.h) / 2.0));
-                const int autoRound     = std::min(RND_FOC, maxProxyRound);
-                const int round        = **PDRAGPROXYROUND >= 0 ? std::min(std::max(0, (int)std::lround((double)**PDRAGPROXYROUND * MON->m_scale)), maxProxyRound) : autoRound;
+        if (g_overviewDrag.state.targetMonitorKey == OVERVIEWKEY && isTileValid(g_overviewDrag.state.targetTileIndex) && g_overviewDrag.state.targetTileIndex != SRC)
+            drawBorderForID(g_overviewDrag.state.targetTileIndex, std::string{*PBCOLFOC}, std::string{*PBGREFOC}, RND_FOC, std::max(2, (int)**PBWIDTH + 1));
 
-                Render::GL::g_pHyprOpenGL->renderRect(proxy, CHyprColor{(uint64_t)(g_overviewDrag.state.moved ? **PDRAGPROXYACTCOL : **PDRAGPROXYCOL)}, {.round = round, .roundingPower = ROUND_PWR});
+        if (SRCOV && SRCMON && POINTERHERE && SRCOV->isTileValid(SRC) && SRCOV->images[SRC].fb) {
+            const auto WINBOX  = g_overviewDrag.window->getWindowMainSurfaceBox();
+            const auto SRCTILE = SRCOV->tileBoxForIndex(SRC, SRCOV->size->value(), SRCOV->GAP_WIDTH, SRCOV->currentOuterInset(), true);
+            const double SCALE = SRCTILE.w / std::max(1.0, SRCMON->m_size.x);
+            const Vector2D POINTER = POINTERLOCAL - pos->value() / MON->m_scale;
+            const Vector2D TOPLEFT = POINTER - g_overviewDrag.grabOffset * SCALE;
+            const double   W = WINBOX.w * SCALE, H = WINBOX.h * SCALE;
 
-                const int borderWidth = **PDRAGPROXYBWIDTH >= 0 ? **PDRAGPROXYBWIDTH : std::max(2, (int)**PBWIDTH + 1);
-                std::string effectiveSpec = std::string{*PDRAGPROXYBORDER}.empty() ? std::string{*PBCOLFOC} : std::string{*PDRAGPROXYBORDER};
-                if (effectiveSpec.empty())
-                    effectiveSpec = std::string{*PBGREFOC};
-                drawProxyBorder(proxy, round, borderWidth, effectiveSpec, std::string{*PBGREFOC});
-            }
+            CBox lifted{TOPLEFT.x * MON->m_scale + pos->value().x, TOPLEFT.y * MON->m_scale + pos->value().y, W * MON->m_scale, H * MON->m_scale};
+            lifted.round();
+            const Vector2D UV0{std::clamp((WINBOX.x - SRCMON->m_position.x) / SRCMON->m_size.x, 0.0, 1.0), std::clamp((WINBOX.y - SRCMON->m_position.y) / SRCMON->m_size.y, 0.0, 1.0)};
+            const Vector2D UV1{std::clamp((WINBOX.x + WINBOX.w - SRCMON->m_position.x) / SRCMON->m_size.x, 0.0, 1.0),
+                               std::clamp((WINBOX.y + WINBOX.h - SRCMON->m_position.y) / SRCMON->m_size.y, 0.0, 1.0)};
+            CRegion liftedDamage{0, 0, INT16_MAX, INT16_MAX};
+            Render::GL::g_pHyprOpenGL->renderTextureInternal(SRCOV->images[SRC].fb->getTexture(), lifted,
+                                                             {.damage = &liftedDamage, .a = 0.92F, .round = BASE_ROUND_SCALED, .roundingPower = ROUND_PWR,
+                                                              .primarySurfaceUVTopLeft = UV0, .primarySurfaceUVBottomRight = UV1});
+            drawProxyBorder(lifted, BASE_ROUND_SCALED, std::max(2, (int)**PBWIDTH + 1), std::string{*PBCOLFOC}, std::string{*PBGREFOC});
+        }
+    }
+
+    // The drop: the copy glides from where the pointer let go into its place in the target card (or back
+    // home when nothing was moved), fading into the fresh capture that arrives underneath.
+    if (g_windowLanding.active && g_windowLanding.monitorKey == OVERVIEWKEY) {
+        const double T = g_windowLanding.ms <= 0 ?
+            1.0 :
+            std::clamp(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - g_windowLanding.start).count() / g_windowLanding.ms, 0.0, 1.0);
+        if (T >= 1.0 || !g_windowLanding.texture) {
+            g_windowLanding = {};
+        } else {
+            const double E = 1.0 - std::pow(1.0 - T, 3.0); // ease-out: it leaves the pointer fast and settles
+            auto         mix = [&](double a, double b) { return a + (b - a) * E; };
+            const auto&  F = g_windowLanding.from;
+            const auto&  TO = g_windowLanding.to;
+            CBox         box{mix(F.x, TO.x) * MON->m_scale + pos->value().x, mix(F.y, TO.y) * MON->m_scale + pos->value().y, mix(F.w, TO.w) * MON->m_scale, mix(F.h, TO.h) * MON->m_scale};
+            box.round();
+            CRegion damageAll{0, 0, INT16_MAX, INT16_MAX};
+            const float ALPHA = 0.92F * (T < 0.7 ? 1.F : (float)((1.0 - T) / 0.3));
+            Render::GL::g_pHyprOpenGL->renderTextureInternal(g_windowLanding.texture, box,
+                                                             {.damage = &damageAll, .a = ALPHA, .round = BASE_ROUND_SCALED, .roundingPower = ROUND_PWR,
+                                                              .primarySurfaceUVTopLeft = g_windowLanding.uvTopLeft, .primarySurfaceUVBottomRight = g_windowLanding.uvBottomRight});
+            entryAnimationPending = true; // keep frames coming until it lands
         }
     }
 

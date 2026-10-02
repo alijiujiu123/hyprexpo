@@ -282,6 +282,21 @@ struct SOverviewDragRuntime {
 
 inline SOverviewDragRuntime g_overviewDrag;
 
+// The copy of a dropped window gliding from where the pointer let go to where it lands (or home, when
+// the drop gave up) — the window-drag counterpart of a card's landing. Tile space of the overview on
+// `monitorKey`, logical units like `tileBoxForIndex`. The texture is the source card's capture as it was
+// at the drop, so the re-capture that follows cannot change what is gliding.
+struct SWindowLanding {
+    bool                                  active = false;
+    uint64_t                              monitorKey = 0;
+    SP<Render::ITexture>                  texture;
+    Vector2D                              uvTopLeft, uvBottomRight;
+    CBox                                  from, to;
+    std::chrono::steady_clock::time_point start;
+    int                                   ms = 0;
+};
+inline SWindowLanding g_windowLanding;
+
 // Grid drag indices are workspace tiles, while scrolling indices address its native scene.
 COverview* gridOverviewForMonitorKey(uint64_t key);
 COverview* gridOverviewForGlobalPoint(const Vector2D& point);
