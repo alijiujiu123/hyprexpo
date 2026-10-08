@@ -488,8 +488,8 @@ int main() {
            "runtime label compatibility checks whether each option was explicitly configured");
     expect(fullRender.find("g_overviewDrag.state.sourceMonitorKey") != std::string::npos && fullRender.find("g_overviewDrag.state.targetMonitorKey") != std::string::npos,
            "source and destination overview renders query the one shared drag session");
-    expect(fullRender.find(".pointerLocal") != std::string::npos && fullRender.find("MON->m_scale") != std::string::npos,
-           "destination proxy geometry uses target-local pointer coordinates and target monitor scale");
+    expect(fullRender.find(".pointerGlobal") != std::string::npos && fullRender.find("MON->m_scale") != std::string::npos,
+           "destination proxy geometry uses the pointer in global coordinates, placed per monitor and target monitor scale");
     expect(source.find("Config::mgr()->getConfigValue(name).setByUser") != std::string::npos,
            "config compatibility exposes explicit-setting metadata for both config providers");
 
