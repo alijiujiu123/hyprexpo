@@ -240,6 +240,10 @@ class COverview final : public IOverviewSession {
     void                         fillDynamicGrid();
     // Re-derives the cards and re-captures them after a workspace changed monitor under an open overview.
     void                         rebuildGrid();
+    // A card from another monitor is hovering over this grid: open a gap at `slot` by sliding the cards from
+    // there on one slot over (-1 closes it again). Only while the grown grid still fits the current shape —
+    // adding a card that needs a new row or column re-flows the whole grid, which happens at the drop.
+    void                         setCrossInsertSlot(int slot);
     // The drop of a card on another monitor's overview: the workspace goes there, both grids re-derive, and
     // the card is then slotted in where it was dropped.
     bool                         finishCrossMonitorDrop(const SCardDrag& drag);

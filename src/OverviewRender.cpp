@@ -31,6 +31,21 @@
 #include <string>
 #include <vector>
 
+// A sub-rectangle of a texture drawn into `dest`. The renderer's own UV crop (`primarySurfaceUV*`) only
+// applies to a surface it is drawing, so a card capture drawn with it came out whole (the copy of a dragged
+// window showed every window of its card). Drawn instead: the whole texture, sized and placed so the wanted
+// rectangle lands on `dest`, with the damage clipped to `dest`. Square corners; the border drawn on top is
+// the rounded edge.
+static void drawCropped(const SP<Render::ITexture>& texture, const CBox& dest, const Vector2D& uvTopLeft, const Vector2D& uvBottomRight, float alpha) {
+    const double DU = uvBottomRight.x - uvTopLeft.x, DV = uvBottomRight.y - uvTopLeft.y;
+    if (!texture || DU <= 1e-4 || DV <= 1e-4 || dest.w <= 0 || dest.h <= 0)
+        return;
+
+    const CBox FULL{dest.x - uvTopLeft.x * dest.w / DU, dest.y - uvTopLeft.y * dest.h / DV, dest.w / DU, dest.h / DV};
+    CRegion    clip{dest};
+    Render::GL::g_pHyprOpenGL->renderTextureInternal(texture, FULL, {.damage = &clip, .a = alpha});
+}
+
 void COverview::redrawID(int id, bool forcelowres) {
     const auto MON = pMonitor.lock();
     if (!MON)
@@ -885,10 +900,7 @@ void COverview::fullRender() {
             const Vector2D UV0{std::clamp((WINBOX.x - SRCMON->m_position.x) / SRCMON->m_size.x, 0.0, 1.0), std::clamp((WINBOX.y - SRCMON->m_position.y) / SRCMON->m_size.y, 0.0, 1.0)};
             const Vector2D UV1{std::clamp((WINBOX.x + WINBOX.w - SRCMON->m_position.x) / SRCMON->m_size.x, 0.0, 1.0),
                                std::clamp((WINBOX.y + WINBOX.h - SRCMON->m_position.y) / SRCMON->m_size.y, 0.0, 1.0)};
-            CRegion liftedDamage{0, 0, INT16_MAX, INT16_MAX};
-            Render::GL::g_pHyprOpenGL->renderTextureInternal(SRCOV->images[SRC].fb->getTexture(), lifted,
-                                                             {.damage = &liftedDamage, .a = 0.92F, .round = BASE_ROUND_SCALED, .roundingPower = ROUND_PWR,
-                                                              .primarySurfaceUVTopLeft = UV0, .primarySurfaceUVBottomRight = UV1});
+            drawCropped(SRCOV->images[SRC].fb->getTexture(), lifted, UV0, UV1, 0.92F);
             drawProxyBorder(lifted, BASE_ROUND_SCALED, std::max(2, (int)**PBWIDTH + 1), std::string{*PBCOLFOC}, std::string{*PBGREFOC});
         }
     }
@@ -908,11 +920,8 @@ void COverview::fullRender() {
             const auto&  TO = g_windowLanding.to;
             CBox         box{mix(F.x, TO.x) * MON->m_scale + pos->value().x, mix(F.y, TO.y) * MON->m_scale + pos->value().y, mix(F.w, TO.w) * MON->m_scale, mix(F.h, TO.h) * MON->m_scale};
             box.round();
-            CRegion damageAll{0, 0, INT16_MAX, INT16_MAX};
             const float ALPHA = 0.92F * (T < 0.7 ? 1.F : (float)((1.0 - T) / 0.3));
-            Render::GL::g_pHyprOpenGL->renderTextureInternal(g_windowLanding.texture, box,
-                                                             {.damage = &damageAll, .a = ALPHA, .round = BASE_ROUND_SCALED, .roundingPower = ROUND_PWR,
-                                                              .primarySurfaceUVTopLeft = g_windowLanding.uvTopLeft, .primarySurfaceUVBottomRight = g_windowLanding.uvBottomRight});
+            drawCropped(g_windowLanding.texture, box, g_windowLanding.uvTopLeft, g_windowLanding.uvBottomRight, ALPHA);
             entryAnimationPending = true; // keep frames coming until it lands
         }
     }

@@ -1311,6 +1311,10 @@ void COverview::rebuildGrid() {
     CBox monbox{{0, 0}, MON->m_pixelSize};
     int  currentid = 0;
 
+    // The move leaves its windows mid-"changed workspace" fade (alpha 0 until it ends), and a capture taken
+    // then is black: settle them first, like the constructor does.
+    settleWorkspaceMoveAnimations();
+
     // Same capture pass as the constructor: the workspace on show is hidden for the duration so the
     // previews are taken the same way as when the overview opened.
     startedOn->m_visible = false;
@@ -1346,6 +1350,10 @@ void COverview::rebuildGrid() {
     kbFocusID = -1;
     hoveredID = -1;
     lastTileCapture.assign(images.size(), std::chrono::steady_clock::now());
+    // The windows are still being laid out on their new screen and re-rendering at its scale: capture every
+    // card again over the next second.
+    for (const auto& image : images)
+        redrawDraggedWorkspace(image.workspaceID);
 
     // The camera stays where the overview is open: full size, no offset.
     *size = MON->m_size;
