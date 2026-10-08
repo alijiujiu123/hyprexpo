@@ -9,6 +9,8 @@
 #include <hyprland/src/Compositor.hpp>
 #include <hyprland/src/config/ConfigValue.hpp>
 #include <hyprland/src/desktop/state/GlobalWindowController.hpp>
+#include <hyprland/src/layout/space/Space.hpp>
+#include <hyprland/src/layout/target/Target.hpp>
 #include <hyprland/src/output/Monitor.hpp>
 #include <hyprland/src/pointer/cursor/CursorShapeOverrideController.hpp>
 #include <hyprland/src/managers/input/InputManager.hpp>
@@ -18,6 +20,7 @@
 #include <hyprland/src/managers/fullscreen/FullscreenController.hpp>
 #include <hyprland/src/config/shared/actions/ConfigActions.hpp>
 #include <algorithm>
+#include <map>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -710,6 +713,126 @@ void COverview::landCardDrag(const std::vector<Hyprexpo::SSlotMove>& moves, int 
     }
 }
 
+// Card reorder keeps a workspace's tiling (issue #22). A window moved the plain way is a fresh insertion
+// that splits whatever node the pointer happens to be over, along that node's longer side, so who ends
+// up beside whom - and in which direction - depends on the order and on the residents of the target.
+// Instead each window's rectangle in its workspace is recorded (as a fraction of the work area), and the
+// windows are re-inserted in tiling order: each one beside the already-placed window it shared the
+// longest edge with, on the side it was on (dwindle's `preselect`), by pointing the insertion at that
+// window. Dwindle's own tree is private, so this rebuilds an equivalent tree rather than copying it.
+using SCarriedBoxes = std::map<PHLWINDOW, CBox>;
+
+void carryLayout(std::vector<PHLWINDOW>& windows, const PHLWORKSPACE& workspace, SCarriedBoxes& boxes) {
+    if (!workspace || !workspace->m_space)
+        return;
+
+    // A fullscreen window has no tiled box while it covers the area (and the core takes it out of
+    // fullscreen to move it anyway): read the layout without it. The caller restores the modes.
+    for (const auto& window : windows) {
+        if (window && Fullscreen::controller()->isFullscreen(window))
+            Fullscreen::controller()->setFullscreenMode(window, Fullscreen::FSMODE_NONE);
+    }
+    const auto                              AREA = workspace->m_space->workArea();
+    std::vector<std::pair<PHLWINDOW, CBox>> tiled;
+    for (const auto& window : windows) {
+        const auto TARGET = window ? window->layoutTarget() : nullptr;
+        if (!TARGET || TARGET->floating() || AREA.w <= 0 || AREA.h <= 0)
+            continue;
+        const auto LOCAL = workspace->m_space->targetPositionLocal(TARGET);
+        tiled.emplace_back(window, CBox{LOCAL.x / AREA.w, LOCAL.y / AREA.h, LOCAL.w / AREA.w, LOCAL.h / AREA.h});
+    }
+    // Tiling order, top-left first: every window after the first has a neighbour that came before it.
+    std::stable_sort(tiled.begin(), tiled.end(), [](const auto& a, const auto& b) {
+        if (std::abs(a.second.y - b.second.y) > 0.01)
+            return a.second.y < b.second.y;
+        return a.second.x < b.second.x;
+    });
+    std::vector<PHLWINDOW> ordered;
+    for (const auto& [window, box] : tiled) {
+        boxes[window] = box;
+        ordered.push_back(window);
+    }
+    for (const auto& window : windows) {
+        if (!boxes.contains(window))
+            ordered.push_back(window);
+    }
+    windows = ordered;
+}
+
+// Which placed window `box` sat beside, and on which side of it ('l' 'r' 'u' 'd').
+std::pair<PHLWINDOW, char> carriedNeighbour(const CBox& box, const std::vector<PHLWINDOW>& placed, const SCarriedBoxes& boxes) {
+    constexpr double EDGE = 0.02;
+    PHLWINDOW        best;
+    char             side  = 'r';
+    double           score = 0.0;
+    for (const auto& other : placed) {
+        const auto IT = boxes.find(other);
+        if (IT == boxes.end())
+            continue;
+        const auto&  O        = IT->second;
+        const double OVERLAPY = std::min(box.y + box.h, O.y + O.h) - std::max(box.y, O.y);
+        const double OVERLAPX = std::min(box.x + box.w, O.x + O.w) - std::max(box.x, O.x);
+        char         found    = 0;
+        double       length   = 0.0;
+        if (OVERLAPY > EDGE && std::abs(box.x - (O.x + O.w)) < EDGE)
+            found = 'r', length = OVERLAPY;
+        else if (OVERLAPY > EDGE && std::abs(box.x + box.w - O.x) < EDGE)
+            found = 'l', length = OVERLAPY;
+        else if (OVERLAPX > EDGE && std::abs(box.y - (O.y + O.h)) < EDGE)
+            found = 'd', length = OVERLAPX;
+        else if (OVERLAPX > EDGE && std::abs(box.y + box.h - O.y) < EDGE)
+            found = 'u', length = OVERLAPX;
+        if (found && length > score - 1e-6) { // a tie goes to the later window: it is the one a split of the newer half belongs to
+            best  = other;
+            side  = found;
+            score = length;
+        }
+    }
+    return {best, side};
+}
+
+// moveWindowToWorkspace, but a tiled window enters the destination's tree where it stood. The core's own
+// path ends in `assignToSpace(space)` without a focal point; this is the same call with one, plus the
+// bookkeeping the core does around it. Floating, grouped and pinned windows keep the core's path.
+void movePlacedInWorkspace(const PHLWINDOW& window, const PHLWORKSPACE& destination, const SCarriedBoxes& boxes, std::vector<PHLWINDOW>& placed) {
+    const auto IT     = boxes.find(window);
+    const auto TARGET = window ? window->layoutTarget() : nullptr;
+    if (IT == boxes.end() || !TARGET || !destination || !destination->m_space || TARGET->floating() || window->m_group || window->m_pinned ||
+        window->m_workspace == destination) {
+        Desktop::globalWindowController()->moveWindowToWorkspace(window, destination);
+        return;
+    }
+
+    const auto  SPACE = destination->m_space;
+    const auto  AREA  = SPACE->workArea();
+    const auto& BOX   = IT->second;
+    Vector2D    focal = {AREA.x + (BOX.x + BOX.w / 2.0) * AREA.w, AREA.y + (BOX.y + BOX.h / 2.0) * AREA.h};
+    bool        preselected = false;
+
+    if (!placed.empty()) {
+        const auto [NEIGHBOUR, SIDE] = carriedNeighbour(BOX, placed, boxes);
+        if (NEIGHBOUR && NEIGHBOUR->layoutTarget() && NEIGHBOUR->layoutTarget()->space() == SPACE) {
+            const auto NB = SPACE->targetPositionLocal(NEIGHBOUR->layoutTarget());
+            focal         = {AREA.x + NB.x + NB.w / 2.0, AREA.y + NB.y + NB.h / 2.0};
+            SPACE->layoutMsg(std::format("preselect {}", SIDE));
+            preselected = true;
+        }
+    }
+
+    const auto OLD = window->m_workspace;
+    TARGET->assignToSpace(SPACE, focal);
+    if (preselected)
+        SPACE->layoutMsg("preselect reset"); // a window that did not take the direction must not leave it for the next
+    placed.push_back(window);
+
+    window->m_ruleApplicator->propertiesChanged(Desktop::Rule::RULE_PROP_ON_WORKSPACE);
+    window->uncacheWindowDecos();
+    destination->updateWindows();
+    if (OLD)
+        OLD->updateWindows();
+    Desktop::globalWindowController()->updateSuspendedStates();
+}
+
 bool COverview::finishCardDrag() {
     if (!cardDrag.active)
         return false;
@@ -751,6 +874,7 @@ bool COverview::finishCardDrag() {
     // meet there for a moment and one loses its state (seen in the sandbox: the displaced window
     // arrived at its new slot tiled). Each moved window gets its modes back afterwards.
     std::vector<std::pair<PHLWINDOW, Fullscreen::SFullscreenMode>> fullscreenModes;
+    SCarriedBoxes                                                  centres;
     for (const auto& move : MOVES) {
         const auto ID        = images[move.source].workspaceID;
         const auto WORKSPACE = workspaceByID(ID);
@@ -765,6 +889,10 @@ bool COverview::finishCardDrag() {
             contents[move.source].push_back(window);
             fullscreenModes.emplace_back(window, Fullscreen::controller()->getFullscreenModes(window));
         }
+        // Where each tiled window sits in its workspace's work area (its centre, as a fraction of the area):
+        // a reinsert picks the dwindle node and the side from that point, and tiling order replaces
+        // creation order, so the layout the windows had comes back instead of being rebuilt window by window.
+        carryLayout(contents[move.source], WORKSPACE, centres);
         appendDragLog(std::format("reorder: slot {} id {} -> {} window(s)", move.source, ID, contents[move.source].size()));
     }
 
@@ -779,10 +907,11 @@ bool COverview::finishCardDrag() {
             Log::logger->log(Log::ERR, "[hyprexpo] card reorder: workspace {} is not on this monitor, stopping", ID);
             break;
         }
+        std::vector<PHLWINDOW> placed;
         for (const auto& window : contents[move.source]) {
             if (!window || !window->m_isMapped)
                 continue;
-            Desktop::globalWindowController()->moveWindowToWorkspace(window, destination);
+            movePlacedInWorkspace(window, destination, centres, placed);
             settleWorkspaceMoveAnimation(window);
         }
         Hyprexpo::AppIcons::setAnchorWindow(ID, anchors[move.source]);
@@ -794,6 +923,15 @@ bool COverview::finishCardDrag() {
         const auto NOW = Fullscreen::controller()->getFullscreenModes(window);
         if (NOW.internal != modes.internal || NOW.client != modes.client)
             Fullscreen::controller()->setFullscreenMode(window, modes.internal, modes.client);
+    }
+
+    // The windows stand where the layout put them *now*, not on their way there: the cards are re-captured
+    // for about a second after the drop, and a capture of the active workspace uses live positions, so an
+    // animation still running (the tree changes with every window moved) would be caught mid-way.
+    for (const auto& [window, modes] : fullscreenModes) {
+        const auto TARGET = window && window->m_isMapped ? window->layoutTarget() : nullptr;
+        if (TARGET && !TARGET->floating())
+            TARGET->warpPositionSize();
     }
 
     images[DRAG.source].pWorkspace.reset();
