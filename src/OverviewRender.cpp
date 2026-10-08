@@ -477,6 +477,10 @@ void COverview::fullRender() {
             // the pointer one slot over (`tileOffsets`, logical units, so before the scale).
             if (id < (int)tileOffsets.size() && tileOffsets[id])
                 texbox.translate(tileOffsets[id]->value());
+            if (id < (int)tileSizeDeltas.size() && tileSizeDeltas[id]) {
+                texbox.w += tileSizeDeltas[id]->value().x;
+                texbox.h += tileSizeDeltas[id]->value().y;
+            }
             texbox.scale(MON->m_scale).translate(pos->value());
             texbox.round();
             tileBoxes[id] = texbox;
@@ -926,51 +930,42 @@ void COverview::fullRender() {
         }
     }
 
-    // Card drag: the slot the card would land in is outlined, and a copy of the card follows the
-    // pointer, held where it was grabbed. The grid does not draw the card while it is in the air (the
-    // tile loop skips it), so its slot is the gap the drop fills and this copy is where the card is —
-    // the box comes from the layout, not from `tileBoxes`, which is empty for it by then.
-    if (cardDrag.active && cardDrag.moved && isTileValid(cardDrag.source)) {
-        if (cardDrag.target != -1 && cardDrag.target != cardDrag.source)
-            drawBorderForID(cardDrag.target, std::string{*PBCOLFOC}, std::string{*PBGREFOC}, RND_FOC, std::max(2, (int)**PBWIDTH + 1));
+    // Card drag. Same screen: the slot the card would land in is outlined. Another screen's card hovering
+    // here: the slot it would take is a ghost (the cards around it have already made room for it).
+    if (cardDrag.active && cardDrag.moved && isTileValid(cardDrag.source) && cardDrag.target != -1 && cardDrag.target != cardDrag.source)
+        drawBorderForID(cardDrag.target, std::string{*PBCOLFOC}, std::string{*PBGREFOC}, RND_FOC, std::max(2, (int)**PBWIDTH + 1));
 
-        if (images[cardDrag.source].fb) {
-            const auto     SOURCEBOX = tileBoxForIndex(cardDrag.source, SIZE, GAPSIZE, OUTER, true);
-            const Vector2D TOPLEFT   = cardDrag.pointerLocal - cardDrag.grabOffset;
-            CBox           lifted{TOPLEFT.x * MON->m_scale + pos->value().x, TOPLEFT.y * MON->m_scale + pos->value().y, SOURCEBOX.w * MON->m_scale,
-                        SOURCEBOX.h * MON->m_scale};
-            lifted.round();
-            CRegion liftedDamage{0, 0, INT16_MAX, INT16_MAX};
-            Render::GL::g_pHyprOpenGL->renderTextureInternal(images[cardDrag.source].fb->getTexture(), lifted,
-                                                             {.damage = &liftedDamage, .a = 0.9F, .round = BASE_ROUND_SCALED, .roundingPower = ROUND_PWR});
-            drawProxyBorder(lifted, BASE_ROUND_SCALED, std::max(2, (int)**PBWIDTH + 1), std::string{*PBCOLFOC}, std::string{*PBGREFOC});
-        }
+    if (preview.insertSlot >= 0 && !images.empty()) {
+        const auto SLOTBOX = slotBoxFor(preview.insertSlot, (int)images.size() + 1);
+        CBox       ghost{SLOTBOX.x * MON->m_scale + pos->value().x, SLOTBOX.y * MON->m_scale + pos->value().y, SLOTBOX.w * MON->m_scale, SLOTBOX.h * MON->m_scale};
+        ghost.round();
+        Render::GL::g_pHyprOpenGL->renderRect(ghost, CHyprColor{1.0, 1.0, 1.0, 0.08}, {.round = BASE_ROUND_SCALED});
+        drawProxyBorder(ghost, BASE_ROUND_SCALED, std::max(2, (int)**PBWIDTH + 1), std::string{*PBCOLFOC}, std::string{*PBGREFOC});
     }
 
-    // A card dragged here from another monitor's overview: the card under the pointer is outlined (the drop
-    // slots the workspace in there) and a copy of the dragged card follows the pointer at this grid's own
-    // card size.
+    // The card in the air, drawn by every screen it overlaps: it is placed in global coordinates and each
+    // monitor draws the part that falls on it, so crossing a seam shows it on both screens at once. The grid
+    // does not draw the card while it is in the air (the tile loop skips it), so its slot is the gap the
+    // drop fills. Its size is the owner's card size times `cardKAnim`.
     for (const auto& session : g_overviews) {
         auto* const SRC = dynamic_cast<COverview*>(session.get());
-        if (!SRC || SRC == this || !SRC->cardDrag.active || !SRC->cardDrag.moved || SRC->cardDrag.crossKey != OVERVIEWKEY || !SRC->isTileValid(SRC->cardDrag.source) ||
-            !SRC->images[SRC->cardDrag.source].fb || images.empty())
+        if (!SRC || !SRC->cardDrag.active || !SRC->cardDrag.moved || !SRC->isTileValid(SRC->cardDrag.source) || !SRC->images[SRC->cardDrag.source].fb)
             continue;
 
-        if (isTileValid(SRC->cardDrag.crossTarget))
-            drawBorderForID(SRC->cardDrag.crossTarget, std::string{*PBCOLFOC}, std::string{*PBGREFOC}, RND_FOC, std::max(2, (int)**PBWIDTH + 1));
+        const double   K       = SRC->cardKAnim ? SRC->cardKAnim->value().x : 1.0;
+        const Vector2D TOPLEFT = SRC->cardDrag.pointerGlobal - SRC->cardDrag.grabOffset * K - MON->m_position; // logical, this monitor
+        const Vector2D LSIZE   = SRC->cardDrag.tileSize * K;
+        if (TOPLEFT.x >= MON->m_size.x || TOPLEFT.y >= MON->m_size.y || TOPLEFT.x + LSIZE.x <= 0 || TOPLEFT.y + LSIZE.y <= 0)
+            continue;
 
-        const auto     SRCTILE = SRC->tileBoxForIndex(SRC->cardDrag.source, SRC->size->value(), SRC->GAP_WIDTH, SRC->currentOuterInset(), true);
-        const auto     OWNTILE = tileBoxForIndex(0, SIZE, GAPSIZE, OUTER, true);
-        const double   K       = SRCTILE.w > 0 ? OWNTILE.w / SRCTILE.w : 1.0;
-        const Vector2D POINTER = SRC->cardDrag.pointerGlobal - MON->m_position - pos->value() / MON->m_scale;
-        const Vector2D TOPLEFT = POINTER - SRC->cardDrag.grabOffset * K;
-        CBox           lifted{TOPLEFT.x * MON->m_scale + pos->value().x, TOPLEFT.y * MON->m_scale + pos->value().y, OWNTILE.w * MON->m_scale, OWNTILE.h * MON->m_scale};
+        CBox lifted{TOPLEFT.x * MON->m_scale, TOPLEFT.y * MON->m_scale, LSIZE.x * MON->m_scale, LSIZE.y * MON->m_scale};
         lifted.round();
         CRegion liftedDamage{0, 0, INT16_MAX, INT16_MAX};
         Render::GL::g_pHyprOpenGL->renderTextureInternal(SRC->images[SRC->cardDrag.source].fb->getTexture(), lifted,
                                                          {.damage = &liftedDamage, .a = 0.9F, .round = BASE_ROUND_SCALED, .roundingPower = ROUND_PWR});
         drawProxyBorder(lifted, BASE_ROUND_SCALED, std::max(2, (int)**PBWIDTH + 1), std::string{*PBCOLFOC}, std::string{*PBGREFOC});
-        break;
+        if (SRC != this)
+            entryAnimationPending = true; // the owner's pointer events repaint its own screen only
     }
 
     if (entryAnimationPending)

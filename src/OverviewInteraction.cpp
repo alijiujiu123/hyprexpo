@@ -552,12 +552,21 @@ bool COverview::beginCardDrag() {
         cardDrag.target     = (int)id;
         cardDrag.pressLocal = POINT;
         cardDrag.pointerLocal = POINT;
+        cardDrag.tileSize     = Vector2D{TILE.w, TILE.h};
+        if (!cardKAnim) {
+            Animation::mgr()->createAnimation(Vector2D{1, 0}, cardKAnim, Hyprexpo::Animation::configForCardReorder(), AVARDAMAGE_NONE);
+            cardKAnim->setUpdateCallback([](auto) { forEachOverview([](IOverviewSession& session) { session.damage(); }); });
+        }
+        cardKAnim->setValueAndWarp(Vector2D{1, 0});
         cardDrag.grabOffset = POINT - Vector2D{TILE.x, TILE.y};
         // A previous drop may still be settling: warp it home, so this drag starts from the layout the
         // pointer is on rather than from cards caught in the air.
         for (const auto& offset : tileOffsets)
             if (offset)
                 offset->setValueAndWarp(Vector2D{0, 0});
+        for (const auto& delta : tileSizeDeltas)
+            if (delta)
+                delta->setValueAndWarp(Vector2D{0, 0});
         Pointer::Cursor::overrideController->setOverride("grabbing", Pointer::Cursor::CURSOR_OVERRIDE_UNKNOWN);
         damage();
         appendDragLog(std::format("  card drag: slot {}", id));
@@ -580,27 +589,40 @@ void COverview::updateCardDrag() {
         return;
     cardDrag.moved = true;
 
-    // A pointer over another monitor's overview is a drop there: that grid outlines the card under it, and
-    // this one has no target (its cards stay put, the dragged one's slot is the gap it leaves).
-    auto* const OTHER = gridOverviewForGlobalPoint(GLOBAL);
-    const auto  OMON  = OTHER && OTHER != this && !OTHER->closing ? OTHER->pMonitor.lock() : PHLMONITOR{};
-    // The grid the card was over a moment ago lets go of its gap when the pointer leaves it or changes slot.
-    if (cardDrag.crossKey != 0 && (!OMON || overviewMonitorKey(OMON) != cardDrag.crossKey)) {
-        if (auto* const PREVIOUS = gridOverviewForMonitorKey(cardDrag.crossKey))
-            PREVIOUS->setCrossInsertSlot(-1);
-    }
-    if (OMON) {
-        cardDrag.crossKey    = overviewMonitorKey(OMON);
-        const int OHIT       = OTHER->tileIndexAtPoint(GLOBAL - OMON->m_position - OTHER->pos->value() / OMON->m_scale, OTHER->size->value(), OTHER->GAP_WIDTH, OTHER->currentOuterInset(), true);
-        cardDrag.crossTarget = OTHER->isTileValid(OHIT) ? OHIT : -1;
-        cardDrag.target      = -1;
-        OTHER->setCrossInsertSlot(cardDrag.crossTarget);
+    // Where the card is decided by its *middle*, not by the pointer: the card's centre against the slots of
+    // the grid it is over. Its size is the one it has on screen right now (it grows/shrinks to the slot it
+    // hovers over, see cardKAnim), so the middle is where the eye sees it.
+    const double   K       = cardKAnim ? cardKAnim->value().x : 1.0;
+    const Vector2D CENTER  = GLOBAL - cardDrag.grabOffset * K + cardDrag.tileSize * K / 2.0;
+    auto* const    HOVERED = gridOverviewForGlobalPoint(CENTER);
+    auto* const    OVER    = HOVERED && !HOVERED->closing ? HOVERED : this;
+    const auto     OMON    = OVER->pMonitor.lock();
+
+    double targetK = 1.0;
+    if (OVER != this && OMON && cardReorderAvailable()) {
+        const int  COUNT = (int)OVER->images.size() + 1;
+        const int  SLOT  = OVER->nearestSlot(CENTER - OMON->m_position - OVER->pos->value() / OMON->m_scale, COUNT);
+        const auto BOX   = OVER->slotBoxFor(SLOT, COUNT);
+        cardDrag.crossKey  = overviewMonitorKey(OMON);
+        cardDrag.crossSlot = SLOT;
+        cardDrag.target    = -1;
+        targetK            = cardDrag.tileSize.x > 0 ? BOX.w / cardDrag.tileSize.x : 1.0;
+        forEachOverview([&](IOverviewSession& session) {
+            if (auto* const OV = dynamic_cast<COverview*>(&session); OV && OV != this)
+                OV->setPreview(OV == OVER ? SLOT : -1, -1);
+        });
+        setPreview(-1, cardDrag.source);
     } else {
-        cardDrag.crossKey    = 0;
-        cardDrag.crossTarget = -1;
-        const int HIT        = tileIndexAtPoint(POINT, size->value(), GAP_WIDTH, currentOuterInset(), true);
-        cardDrag.target      = isTileValid(HIT) ? HIT : -1;
+        cardDrag.crossKey  = 0;
+        cardDrag.crossSlot = -1;
+        forEachOverview([&](IOverviewSession& session) {
+            if (auto* const OV = dynamic_cast<COverview*>(&session))
+                OV->setPreview(-1, -1);
+        });
+        cardDrag.target = nearestSlot(CENTER - MON->m_position - pos->value() / MON->m_scale, (int)images.size());
     }
+    if (cardKAnim)
+        *cardKAnim = Vector2D{targetK, 0.0};
     updateCardShiftOffsets();
     forEachOverview([](IOverviewSession& session) { session.damage(); });
 }
@@ -611,7 +633,8 @@ void COverview::updateCardDrag() {
 // `images` or the workspaces. The offsets animate on the reorder curve and retarget mid-flight, so a
 // pointer crossing several slots re-points the same animation instead of restarting it.
 void COverview::updateCardShiftOffsets() {
-    if (cardDrag.source < 0)
+    // Over another screen the grid is driven by its preview (the card has left it), not by slot shifts.
+    if (cardDrag.source < 0 || cardDrag.crossKey != 0)
         return;
 
     for (size_t id = 0; id < tileOffsets.size() && id < images.size(); ++id) {
@@ -619,10 +642,7 @@ void COverview::updateCardShiftOffsets() {
         if (!OFFSET)
             continue;
 
-        // Dragged onto another screen, the card leaves this grid: everything after it closes up, as if it had
-        // gone to the last slot.
-        const int TO    = cardDrag.crossKey != 0 ? (int)images.size() - 1 : cardDrag.target;
-        const int SHIFT = Hyprexpo::cardShiftFor(images.size(), (size_t)cardDrag.source, TO, id);
+        const int SHIFT = Hyprexpo::cardShiftFor(images.size(), (size_t)cardDrag.source, cardDrag.target, id);
         if (SHIFT == 0) {
             *OFFSET = Vector2D{0, 0};
             continue;
@@ -720,14 +740,17 @@ bool COverview::finishCardDrag() {
         const auto ID        = images[move.source].workspaceID;
         const auto WORKSPACE = workspaceByID(ID);
         anchors[move.source] = Hyprexpo::AppIcons::anchorWindow(ID);
-        if (!WORKSPACE)
+        if (!WORKSPACE) {
+            appendDragLog(std::format("reorder: slot {} id {} has no workspace", move.source, ID));
             continue;
+        }
         for (const auto& window : Desktop::windowState()->windows()) {
             if (!windowVisibleOnWorkspace(window, WORKSPACE))
                 continue;
             contents[move.source].push_back(window);
             fullscreenModes.emplace_back(window, Fullscreen::controller()->getFullscreenModes(window));
         }
+        appendDragLog(std::format("reorder: slot {} id {} -> {} window(s)", move.source, ID, contents[move.source].size()));
     }
 
     for (const auto& move : MOVES) {
@@ -771,32 +794,16 @@ bool COverview::finishCardDrag() {
     return true;
 }
 
-void COverview::setCrossInsertSlot(int slot) {
-    const auto SHAPE = currentGridShape();
-    const bool FITS  = slot >= 0 && (int)images.size() + 1 <= SHAPE.cols * SHAPE.rows;
-    for (size_t id = 0; id < tileOffsets.size() && id < images.size(); ++id) {
-        const auto& OFFSET = tileOffsets[id];
-        if (!OFFSET)
-            continue;
-        if (!FITS || (int)id < slot) {
-            *OFFSET = Vector2D{0, 0};
-            continue;
-        }
-        const auto BOX  = tilePosForID((int)id, size->value(), GAP_WIDTH, currentOuterInset(), true);
-        const auto NEXT = tilePosForID((int)id + 1, size->value(), GAP_WIDTH, currentOuterInset(), true);
-        *OFFSET         = NEXT - BOX;
-    }
-    damage();
-}
-
 bool COverview::finishCrossMonitorDrop(const SCardDrag& DRAG) {
     const auto MON = pMonitor.lock();
     auto* const TARGET = gridOverviewForMonitorKey(DRAG.crossKey);
     const auto  TMON   = TARGET && TARGET != this ? TARGET->pMonitor.lock() : PHLMONITOR{};
 
     // The drag gave up: the cards it had moved aside go home, and every grid repaints.
-    if (TARGET)
-        TARGET->setCrossInsertSlot(-1);
+    forEachOverview([](IOverviewSession& session) {
+        if (auto* const OV = dynamic_cast<COverview*>(&session))
+            OV->setPreview(-1, -1);
+    });
     const auto home = [&] {
         landCardDrag({}, -1, {});
         forEachOverview([](IOverviewSession& session) { session.damage(); });
@@ -828,9 +835,7 @@ bool COverview::finishCrossMonitorDrop(const SCardDrag& DRAG) {
     // Cards sit in id order, so the workspace arrives at the rank of its id. If it was dropped on another
     // card, slot it in there the way a reorder on this screen would (windows move, ids stay).
     const int RANK = TARGET->tileForWorkspaceID(ID);
-    int       SLOT = DRAG.crossTarget;
-    if (SLOT >= 0 && SLOT >= RANK)
-        SLOT++; // the target card was counted before the newcomer joined the grid
+    const int SLOT = DRAG.crossSlot; // a slot of the grown grid, which is the grid it now is
     if (RANK >= 0 && SLOT >= 0 && SLOT != RANK && TARGET->isTileValid(SLOT)) {
         TARGET->cardDrag               = {};
         TARGET->cardDrag.active        = true;

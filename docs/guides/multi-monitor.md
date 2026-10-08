@@ -105,7 +105,12 @@ A workspace card can be dragged by its badge onto another monitor's overview. On
 whole workspace (its windows included) moves to that monitor and both grids re-derive. Cards
 sit in id order on a screen, so the workspace arrives at the rank of its id; when it was dropped
 on a card, it is then slotted in there the way a reorder on that screen works (windows move,
-ids stay). While the card hovers over another monitor, that monitor's cards from the hovered slot on slide one slot over to open a gap (and the source monitor's cards close up), as long as the grown grid still fits the current grid shape; when the extra card needs a new row or column the grid re-flows at the drop instead. An empty workspace (a screen's spare) is not handed over. Needs `dynamic_grid` on
+ids stay). The card is drawn on every monitor it overlaps, so crossing the seam shows it on both screens at once, and it
+grows or shrinks to the size of the slot it is over. Where it lands is decided by the card's *middle*
+against the grid's slots (the nearest slot centre), not by the pointer. A card whose middle is over another
+monitor makes room: that grid is laid out for one more card with a ghost slot at the landing place (cards
+change position and size smoothly, even when the grid needs a new row or column), and the source grid closes
+up. Releasing drops the card into the ghost slot; the grid after the drop is the one that was previewed. An empty workspace (a screen's spare) is not handed over. Needs `dynamic_grid` on
 and `mru_sort` off, like the reorder.
 
 ## Troubleshooting Monitor Names

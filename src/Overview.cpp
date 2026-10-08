@@ -1307,6 +1307,10 @@ void COverview::rebuildGrid() {
     for (const auto& offset : tileOffsets)
         if (offset)
             offset->setValueAndWarp(Vector2D{0, 0});
+    for (const auto& delta : tileSizeDeltas)
+        if (delta)
+            delta->setValueAndWarp(Vector2D{0, 0});
+    preview = {};
 
     CBox monbox{{0, 0}, MON->m_pixelSize};
     int  currentid = 0;
@@ -1377,6 +1381,87 @@ void COverview::ensureTileOffsets() {
     }
 
     tileOffsets.resize(images.size());
+
+    while (tileSizeDeltas.size() < images.size()) {
+        PHLANIMVAR<Vector2D> delta;
+
+        Animation::mgr()->createAnimation(Vector2D{0, 0}, delta, Hyprexpo::Animation::configForCardReorder(), AVARDAMAGE_NONE);
+        delta->setUpdateCallback(damageMonitor);
+
+        tileSizeDeltas.emplace_back(std::move(delta));
+    }
+
+    tileSizeDeltas.resize(images.size());
+}
+
+Hyprexpo::SGridShape COverview::dynamicShapeFor(int count) const {
+    const auto SHAPE = Hyprexpo::computeDynamicGridShape(count);
+    return {std::max(2, SHAPE.cols), std::max(2, SHAPE.rows)};
+}
+
+CBox COverview::slotBoxFor(int slot, int count) const {
+    const auto MON = pMonitor.lock();
+    if (!MON || !size)
+        return {};
+
+    const double          GAP   = transitionPercent() * GAP_WIDTH;
+    const double          OUTER = currentOuterInset();
+    const Vector2D        TOTAL = size->value();
+    const Hyprexpo::SSize total{std::max(0.0, TOTAL.x - OUTER * 2.0), std::max(0.0, TOTAL.y - OUTER * 2.0)};
+    const auto            layout = Hyprexpo::computeTileLayout(slot, count, dynamicShapeFor(count), total, GAP, true);
+    return {layout.box.x + OUTER, layout.box.y + OUTER, layout.box.w, layout.box.h};
+}
+
+int COverview::nearestSlot(const Vector2D& point, int count) const {
+    int    best     = 0;
+    double bestDist = 1e18;
+    for (int slot = 0; slot < count; ++slot) {
+        const auto BOX = slotBoxFor(slot, count);
+        const double DX = point.x - (BOX.x + BOX.w / 2.0), DY = point.y - (BOX.y + BOX.h / 2.0);
+        const double D = DX * DX + DY * DY;
+        if (D < bestDist) {
+            bestDist = D;
+            best     = slot;
+        }
+    }
+    return best;
+}
+
+void COverview::setPreview(int insertSlot, int removed) {
+    if (preview.insertSlot == insertSlot && preview.removed == removed)
+        return;
+
+    preview = {insertSlot, removed};
+    applyPreviewOffsets();
+    damage();
+}
+
+void COverview::applyPreviewOffsets() {
+    const int  N     = (int)images.size();
+    const bool ON    = preview.insertSlot >= 0 || preview.removed >= 0;
+    const int  COUNT = N + (preview.insertSlot >= 0 ? 1 : 0) - (preview.removed >= 0 ? 1 : 0);
+
+    for (int id = 0; id < N && id < (int)tileOffsets.size() && id < (int)tileSizeDeltas.size(); ++id) {
+        if (!tileOffsets[id] || !tileSizeDeltas[id])
+            continue;
+
+        if (!ON || COUNT < 1 || id == preview.removed) {
+            *tileOffsets[id]    = Vector2D{0, 0};
+            *tileSizeDeltas[id] = Vector2D{0, 0};
+            continue;
+        }
+
+        int newIndex = id;
+        if (preview.removed >= 0 && id > preview.removed)
+            newIndex--;
+        if (preview.insertSlot >= 0 && newIndex >= preview.insertSlot)
+            newIndex++;
+
+        const auto OLDBOX = slotBoxFor(id, N);
+        const auto NEWBOX = slotBoxFor(newIndex, COUNT);
+        *tileOffsets[id]    = Vector2D{NEWBOX.x - OLDBOX.x, NEWBOX.y - OLDBOX.y};
+        *tileSizeDeltas[id] = Vector2D{NEWBOX.w - OLDBOX.w, NEWBOX.h - OLDBOX.h};
+    }
 }
 
 

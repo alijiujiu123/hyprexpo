@@ -220,13 +220,26 @@ class COverview final : public IOverviewSession {
         Vector2D pressLocal;   // monitor-local logical
         Vector2D pointerLocal; // monitor-local logical
         Vector2D grabOffset;   // pointer minus the card's top-left at press, logical
-        // The pointer is over another monitor's overview: `crossKey` is that overview's monitor key (0 = this
-        // one) and `crossTarget` the card under the pointer there (-1 = none). Dropping then moves the whole
-        // workspace over to that monitor.
-        uint64_t crossKey    = 0;
-        int      crossTarget = -1;
+        // The card's *middle* is over another monitor's overview: `crossKey` is that overview's monitor key
+        // (0 = this one) and `crossSlot` the slot it would take in that overview's grown grid (one slot more
+        // than it has cards). Dropping then moves the whole workspace over to that monitor.
+        uint64_t crossKey  = 0;
+        int      crossSlot = -1;
         Vector2D pointerGlobal;
+        Vector2D tileSize; // the card's size on its own monitor at press, logical
     } cardDrag;
+
+    // How big the lifted card is drawn relative to `cardDrag.tileSize` (x): it grows or shrinks to the size of
+    // the slot it hovers over, so crossing to a monitor with another card size is not a jump.
+    PHLANIMVAR<Vector2D> cardKAnim;
+
+    // What the grid shows while a card from another monitor hovers over it (a gap, `insertSlot`) or has left
+    // it (`removed`): every card is drawn at its place in the grid of the new count, position *and* size,
+    // glided there through `tileOffsets`/`tileSizeDeltas`. The grid itself is not re-derived until the drop.
+    struct SPreview {
+        int insertSlot = -1;
+        int removed    = -1;
+    } preview;
 
     // How far each card is drawn from its own slot, monitor-local *logical* units like the box
     // `tileBoxForIndex` returns (the renderer translates before scaling). One per slot, created and
@@ -234,6 +247,8 @@ class COverview final : public IOverviewSession {
     // dragged slot and the hovered one slide a slot over (Hyprexpo::cardShiftFor) and settle into the
     // new order after the drop, instead of the whole grid jumping.
     std::vector<PHLANIMVAR<Vector2D>> tileOffsets;
+    // How much bigger/smaller each card is drawn than its own slot (w, h), same units; see `preview`.
+    std::vector<PHLANIMVAR<Vector2D>> tileSizeDeltas;
 
     // Re-derives the dynamic grid from this monitor's workspaces and sizes `images` (and the per-tile
     // bookkeeping) to match. Called from the constructor when the overview opens.
@@ -243,7 +258,13 @@ class COverview final : public IOverviewSession {
     // A card from another monitor is hovering over this grid: open a gap at `slot` by sliding the cards from
     // there on one slot over (-1 closes it again). Only while the grown grid still fits the current shape —
     // adding a card that needs a new row or column re-flows the whole grid, which happens at the drop.
-    void                         setCrossInsertSlot(int slot);
+    void                         setPreview(int insertSlot, int removed);
+    void                         applyPreviewOffsets();
+    Hyprexpo::SGridShape         dynamicShapeFor(int count) const;
+    // The box slot `slot` has in a grid of `count` cards, logical monitor-local units.
+    CBox                         slotBoxFor(int slot, int count) const;
+    // The slot of a grid of `count` cards whose middle is nearest to `point` (tile space, logical).
+    int                          nearestSlot(const Vector2D& point, int count) const;
     // The drop of a card on another monitor's overview: the workspace goes there, both grids re-derive, and
     // the card is then slotted in where it was dropped.
     bool                         finishCrossMonitorDrop(const SCardDrag& drag);
