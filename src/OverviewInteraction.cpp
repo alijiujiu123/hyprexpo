@@ -295,10 +295,19 @@ void COverview::updateWindowDrag() {
     if (target.accepted)
         g_overviewDrag.state = target.next;
 
-    for (const auto key : g_overviewDrag.state.affectedMonitorKeys) {
-        if (auto* const OV = overviewForMonitorKey(key))
-            OV->damage();
+    // The copy of the window is drawn by every screen it overlaps and grows or shrinks to the card size of
+    // the grid under the pointer (cardKAnim of the source overview, as for a card).
+    ensureCardKAnim();
+    double targetK = 1.0;
+    if (auto* const HOVER = gridOverviewForGlobalPoint(GLOBAL); HOVER && !HOVER->images.empty() && !images.empty()) {
+        const auto OWN   = slotBoxFor(0, (int)images.size());
+        const auto THEIR = HOVER->slotBoxFor(0, (int)HOVER->images.size());
+        if (OWN.w > 0 && THEIR.w > 0)
+            targetK = THEIR.w / OWN.w;
     }
+    *cardKAnim = Vector2D{targetK, 0.0};
+
+    forEachOverview([](IOverviewSession& session) { session.damage(); });
 }
 
 PHLWORKSPACE COverview::ensureWorkspaceForTile(int id) {
@@ -553,10 +562,7 @@ bool COverview::beginCardDrag() {
         cardDrag.pressLocal = POINT;
         cardDrag.pointerLocal = POINT;
         cardDrag.tileSize     = Vector2D{TILE.w, TILE.h};
-        if (!cardKAnim) {
-            Animation::mgr()->createAnimation(Vector2D{1, 0}, cardKAnim, Hyprexpo::Animation::configForCardReorder(), AVARDAMAGE_NONE);
-            cardKAnim->setUpdateCallback([](auto) { forEachOverview([](IOverviewSession& session) { session.damage(); }); });
-        }
+        ensureCardKAnim();
         cardKAnim->setValueAndWarp(Vector2D{1, 0});
         cardDrag.grabOffset = POINT - Vector2D{TILE.x, TILE.y};
         // A previous drop may still be settling: warp it home, so this drag starts from the layout the
@@ -574,6 +580,13 @@ bool COverview::beginCardDrag() {
     }
     appendDragLog("  no badge hit -> window drag");
     return false;
+}
+
+void COverview::ensureCardKAnim() {
+    if (cardKAnim)
+        return;
+    Animation::mgr()->createAnimation(Vector2D{1, 0}, cardKAnim, Hyprexpo::Animation::configForCardReorder(), AVARDAMAGE_NONE);
+    cardKAnim->setUpdateCallback([](auto) { forEachOverview([](IOverviewSession& session) { session.damage(); }); });
 }
 
 void COverview::updateCardDrag() {
@@ -599,6 +612,8 @@ void COverview::updateCardDrag() {
     const auto     OMON    = OVER->pMonitor.lock();
 
     double targetK = 1.0;
+    if ((cardDrag.crossKey != 0) != (OVER != this && OMON && cardReorderAvailable()))
+        appendDragLog(std::format("card drag: {} the seam (centre {:.0f},{:.0f})", cardDrag.crossKey == 0 ? "over" : "back over", CENTER.x, CENTER.y));
     if (OVER != this && OMON && cardReorderAvailable()) {
         const int  COUNT = (int)OVER->images.size() + 1;
         const int  SLOT  = OVER->nearestSlot(CENTER - OMON->m_position - OVER->pos->value() / OMON->m_scale, COUNT);
@@ -826,6 +841,7 @@ bool COverview::finishCrossMonitorDrop(const SCardDrag& DRAG) {
         return home();
 
     const int64_t ID = workspace->m_id;
+    appendDragLog(std::format("card drop on another screen: workspace {} -> slot {}", ID, DRAG.crossSlot));
     State::workspacePlacementController()->moveWorkspaceToMonitor(workspace, TMON, true);
     Log::logger->log(Log::INFO, "[hyprexpo] card moved across monitors: workspace {} {} -> {}", ID, MON->m_name, TMON->m_name);
 

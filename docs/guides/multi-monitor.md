@@ -86,6 +86,8 @@ At an exhausted edge, the plugin uses global logical geometry to choose the
 nearest tile in that direction on another monitor. Selecting it switches only
 the target monitor, then dismisses every open overview.
 
+Window previews can also be dragged between monitor overviews, and like a card the copy is drawn on every monitor it overlaps (both halves at the seam), sized to the card size of the grid under the pointer.
+
 Window previews can also be dragged between monitor overviews. The monitor under
 the pointer renders the proxy with the target monitor's own logical tile layout
 and scale. After a valid drop, source and target thumbnails refresh

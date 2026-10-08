@@ -258,6 +258,7 @@ class COverview final : public IOverviewSession {
     // A card from another monitor is hovering over this grid: open a gap at `slot` by sliding the cards from
     // there on one slot over (-1 closes it again). Only while the grown grid still fits the current shape —
     // adding a card that needs a new row or column re-flows the whole grid, which happens at the drop.
+    void                         ensureCardKAnim();
     void                         setPreview(int insertSlot, int removed);
     void                         applyPreviewOffsets();
     Hyprexpo::SGridShape         dynamicShapeFor(int count) const;

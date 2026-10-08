@@ -378,6 +378,9 @@ void COverview::onWorkspaceChange() {
     if (!MON)
         return;
 
+    if (cardDrag.active || g_overviewDrag.state.active)
+        appendDragLog(std::format("overview on {} closes: the active workspace changed during a drag", MON->m_name));
+
     if (valid(startedOn))
         Animation::Workspace::startAnimation(startedOn, Animation::Workspace::ANIMATION_TYPE_OUT, false, true);
     else
@@ -882,8 +885,6 @@ void COverview::fullRender() {
     // Window drag, drawn the way a card drag is: the target card is outlined and a copy of the window
     // (cropped out of its card's capture) follows the pointer, held where it was grabbed.
     {
-        const Vector2D POINTERLOCAL = g_overviewDrag.pointerGlobal - MON->m_position;
-        const bool     POINTERHERE  = POINTERLOCAL.x >= 0 && POINTERLOCAL.y >= 0 && POINTERLOCAL.x < MON->m_size.x && POINTERLOCAL.y < MON->m_size.y;
         auto* const    SRCOV        = g_overviewDrag.window && g_overviewDrag.state.moved ? gridOverviewForMonitorKey(g_overviewDrag.state.sourceMonitorKey) : nullptr;
         const auto     SRCMON       = SRCOV ? SRCOV->pMonitor.lock() : PHLMONITOR{};
         const int      SRC          = g_overviewDrag.state.sourceTileIndex;
@@ -891,15 +892,23 @@ void COverview::fullRender() {
         if (g_overviewDrag.state.targetMonitorKey == OVERVIEWKEY && isTileValid(g_overviewDrag.state.targetTileIndex) && g_overviewDrag.state.targetTileIndex != SRC)
             drawBorderForID(g_overviewDrag.state.targetTileIndex, std::string{*PBCOLFOC}, std::string{*PBGREFOC}, RND_FOC, std::max(2, (int)**PBWIDTH + 1));
 
-        if (SRCOV && SRCMON && POINTERHERE && SRCOV->isTileValid(SRC) && SRCOV->images[SRC].fb) {
-            const auto WINBOX  = g_overviewDrag.window->getWindowMainSurfaceBox();
+        // Placed in global coordinates and drawn by every screen it overlaps (so it is on both at a seam),
+        // at the source card's scale times the owner's cardKAnim.
+        bool         overlaps = false;
+        double       SCALE    = 1.0;
+        Vector2D     TOPLEFT;
+        Vector2D     LSIZE;
+        const CBox   WINBOX = SRCOV && g_overviewDrag.window ? g_overviewDrag.window->getWindowMainSurfaceBox() : CBox{};
+        if (SRCOV && SRCMON && SRCOV->isTileValid(SRC) && SRCOV->images[SRC].fb) {
             const auto SRCTILE = SRCOV->tileBoxForIndex(SRC, SRCOV->size->value(), SRCOV->GAP_WIDTH, SRCOV->currentOuterInset(), true);
-            const double SCALE = SRCTILE.w / std::max(1.0, SRCMON->m_size.x);
-            const Vector2D POINTER = POINTERLOCAL - pos->value() / MON->m_scale;
-            const Vector2D TOPLEFT = POINTER - g_overviewDrag.grabOffset * SCALE;
-            const double   W = WINBOX.w * SCALE, H = WINBOX.h * SCALE;
+            SCALE = SRCTILE.w / std::max(1.0, SRCMON->m_size.x) * (SRCOV->cardKAnim ? SRCOV->cardKAnim->value().x : 1.0);
+            TOPLEFT = g_overviewDrag.pointerGlobal - g_overviewDrag.grabOffset * SCALE - MON->m_position;
+            LSIZE   = Vector2D{WINBOX.w * SCALE, WINBOX.h * SCALE};
+            overlaps = !(TOPLEFT.x >= MON->m_size.x || TOPLEFT.y >= MON->m_size.y || TOPLEFT.x + LSIZE.x <= 0 || TOPLEFT.y + LSIZE.y <= 0);
+        }
 
-            CBox lifted{TOPLEFT.x * MON->m_scale + pos->value().x, TOPLEFT.y * MON->m_scale + pos->value().y, W * MON->m_scale, H * MON->m_scale};
+        if (overlaps) {
+            CBox lifted{TOPLEFT.x * MON->m_scale, TOPLEFT.y * MON->m_scale, LSIZE.x * MON->m_scale, LSIZE.y * MON->m_scale};
             lifted.round();
             const Vector2D UV0{std::clamp((WINBOX.x - SRCMON->m_position.x) / SRCMON->m_size.x, 0.0, 1.0), std::clamp((WINBOX.y - SRCMON->m_position.y) / SRCMON->m_size.y, 0.0, 1.0)};
             const Vector2D UV1{std::clamp((WINBOX.x + WINBOX.w - SRCMON->m_position.x) / SRCMON->m_size.x, 0.0, 1.0),
@@ -964,8 +973,6 @@ void COverview::fullRender() {
         Render::GL::g_pHyprOpenGL->renderTextureInternal(SRC->images[SRC->cardDrag.source].fb->getTexture(), lifted,
                                                          {.damage = &liftedDamage, .a = 0.9F, .round = BASE_ROUND_SCALED, .roundingPower = ROUND_PWR});
         drawProxyBorder(lifted, BASE_ROUND_SCALED, std::max(2, (int)**PBWIDTH + 1), std::string{*PBCOLFOC}, std::string{*PBGREFOC});
-        if (SRC != this)
-            entryAnimationPending = true; // the owner's pointer events repaint its own screen only
     }
 
     if (entryAnimationPending)

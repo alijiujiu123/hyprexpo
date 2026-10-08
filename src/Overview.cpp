@@ -1689,6 +1689,17 @@ COverview::COverview(PHLWORKSPACE startedOn_, PHLMONITOR monitor_, bool swipe_, 
         if (closing)
             return;
 
+        // Every overview registers this listener, so one pointer event used to run it once per screen
+        // (each run walking every overview). Only the first live overview acts.
+        for (const auto& session : g_overviews) {
+            auto* const OV = dynamic_cast<COverview*>(session.get());
+            if (!OV || OV->closing)
+                continue;
+            if (OV != this)
+                return;
+            break;
+        }
+
         const Vector2D GLOBAL = g_pInputManager->getMouseCoordsInternal();
         for (const auto& session : g_overviews) {
             auto* const OV = dynamic_cast<COverview*>(session.get());
@@ -1701,10 +1712,21 @@ COverview::COverview(PHLWORKSPACE startedOn_, PHLMONITOR monitor_, bool swipe_, 
             OV->updateHoveredFromMouse();
         }
 
-        if (info.cancelled || !dynamic_cast<COverview*>(pointerOverview()))
+        // A drag in progress follows the pointer whoever else claimed the event (another plugin cancelling
+        // it, or the pointer being on a monitor with no overview): losing the move events is how a lifted
+        // card stops following the hand and stays where it was.
+        bool dragging = g_overviewDrag.state.active;
+        for (const auto& session : g_overviews) {
+            if (auto* const OV = dynamic_cast<COverview*>(session.get()); OV && OV->cardDrag.active)
+                dragging = true;
+        }
+        const bool OVER = dynamic_cast<COverview*>(pointerOverview()) != nullptr;
+        if (!dragging && (info.cancelled || !OVER))
             return;
-        info.cancelled = true;
-        ensureOverviewCursorVisible();
+        if (OVER) {
+            info.cancelled = true;
+            ensureOverviewCursorVisible();
+        }
 
         if (auto* const SOURCE = gridOverviewForMonitorKey(g_overviewDrag.state.sourceMonitorKey))
             SOURCE->updateWindowDrag();
