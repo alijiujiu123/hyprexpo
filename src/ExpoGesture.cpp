@@ -128,6 +128,7 @@ void CExpoGesture::resampleFrame(const PHLMONITOR& monitor) {
     if (std::abs(POS - m_sent) > 1e-4) {
         m_sent = POS;
         OV->onSwipeUpdate(std::max(POS, 0.01));
+        forEachFollower([POS](IOverviewSession& s) { s.onSwipeUpdate(std::max(POS, 0.01)); });
     }
 
     // Still behind the newest event (the fingers stopped less than resample_ms ago): ask for the
@@ -146,6 +147,7 @@ void CExpoGesture::begin(const ITrackpadGesture::STrackpadGestureBegin& e) {
     m_haveVelocity = false;
     m_monitor.reset();
     m_sessionGeneration = 0;
+    m_followers.clear();
     m_resampling = resampleMs() > 0;
     m_sent       = 0.0;
     m_frames.clear();
@@ -172,11 +174,35 @@ void CExpoGesture::begin(const ITrackpadGesture::STrackpadGestureBegin& e) {
 
     auto* const OV = overviewForMonitor(monitor);
     m_sessionGeneration = OV ? OV->sessionGeneration() : 0;
+    // Every other screen goes with the fingers. Opening: each gets an overview of its own. Closing (or
+    // cancelling): each overview that is up is told to close onto the workspace it opened on, so the
+    // selection below only ever switches the pointer's screen.
+    const auto followOthers = [&](bool opening) {
+        for (const auto& OTHER : State::monitorState()->monitors()) {
+            if (!OTHER || OTHER == monitor || !OTHER->m_activeWorkspace)
+                continue;
+
+            IOverviewSession* session = overviewForMonitor(OTHER);
+            if (opening) {
+                if (session && !session->closeCommitted())
+                    continue; // one the user opened by hand stays out of this gesture
+                session = createOverview(OTHER, true);
+            } else if (session && !session->closeCommitted()) {
+                session->beginCancelSwipe();
+            } else
+                session = nullptr;
+
+            if (session)
+                m_followers.push_back({.monitorKey = overviewMonitorKey(OTHER), .generation = session->sessionGeneration()});
+        }
+    };
+
     if (m_action == EExpoGestureAction::Cancel) {
         if (!OV || OV->closeCommitted())
             return;
 
         OV->beginCancelSwipe();
+        followOthers(false);
         return;
     }
 
@@ -186,12 +212,22 @@ void CExpoGesture::begin(const ITrackpadGesture::STrackpadGestureBegin& e) {
         if (m_action == EExpoGestureAction::Commit)
             return;
 
-        if (auto* const CREATED = createOverview(monitor, true))
+        if (auto* const CREATED = createOverview(monitor, true)) {
             m_sessionGeneration = CREATED->sessionGeneration();
+            followOthers(true);
+        }
     }
     else if (!OV->closeCommitted()) {
         OV->selectHoveredWorkspace();
         OV->setClosing(true);
+        followOthers(false);
+    }
+}
+
+void CExpoGesture::forEachFollower(const std::function<void(IOverviewSession&)>& fn) const {
+    for (const auto& follower : m_followers) {
+        if (auto* const session = overviewForSession(follower.monitorKey, follower.generation); session && !session->closeCommitted())
+            fn(*session);
     }
 }
 
@@ -249,6 +285,7 @@ void CExpoGesture::update(const ITrackpadGesture::STrackpadGestureUpdate& e) {
 
     if (!m_resampling) {
         OV->onSwipeUpdate(m_lastDelta);
+        forEachFollower([this](IOverviewSession& s) { s.onSwipeUpdate(m_lastDelta); });
         return;
     }
 
@@ -274,8 +311,10 @@ void CExpoGesture::end(const ITrackpadGesture::STrackpadGestureEnd& e) {
 
     // The overview decides and lands from its own last position: hand it the fingers' true final
     // travel first (at most resample_ms of motion ahead of what the last frame showed).
-    if (WASRESAMPLING && std::abs(m_lastDelta - m_sent) > 1e-4)
+    if (WASRESAMPLING && std::abs(m_lastDelta - m_sent) > 1e-4) {
         OV->onSwipeUpdate(m_lastDelta);
+        forEachFollower([this](IOverviewSession& s) { s.onSwipeUpdate(m_lastDelta); });
+    }
 
     const double PROJECTED = e.swipe ? releaseProjectedDelta(e.swipe->timeMs) : -1.0;
 
@@ -294,6 +333,15 @@ void CExpoGesture::end(const ITrackpadGesture::STrackpadGestureEnd& e) {
     const bool SELECTS = m_action != EExpoGestureAction::Cancel && (m_action != EExpoGestureAction::Commit || m_lastDelta >= commitMinTravel());
     if (m_action == EExpoGestureAction::Commit && !SELECTS)
         OV->beginCancelSwipe();
+
+    // The followers are decided by the same position and velocity, and never select. They go first:
+    // the primary's release may tear its overview down.
+    forEachFollower([PROJECTED](IOverviewSession& s) {
+        s.setClosing(false);
+        s.onSwipeEnd(false, PROJECTED);
+        s.resetSwipe();
+    });
+    m_followers.clear();
 
     OV->setClosing(false);
     OV->onSwipeEnd(SELECTS, PROJECTED);

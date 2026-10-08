@@ -1,3 +1,4 @@
+#include <hyprland/src/state/WorkspacePlacementController.hpp>
 #include "HyprlandConfigCompat.hpp"
 #define HyprlandAPI CompatHyprlandAPI
 #include "OverviewAnimation.hpp"
@@ -571,17 +572,31 @@ void COverview::updateCardDrag() {
     if (!MON || !cardDrag.active)
         return;
 
-    const Vector2D POINT = g_pInputManager->getMouseCoordsInternal() - MON->m_position - pos->value() / MON->m_scale;
-    cardDrag.pointerLocal = POINT;
+    const Vector2D GLOBAL = g_pInputManager->getMouseCoordsInternal();
+    const Vector2D POINT  = GLOBAL - MON->m_position - pos->value() / MON->m_scale;
+    cardDrag.pointerLocal  = POINT;
+    cardDrag.pointerGlobal = GLOBAL;
     if (!cardDrag.moved && std::hypot(POINT.x - cardDrag.pressLocal.x, POINT.y - cardDrag.pressLocal.y) < 12.0)
         return;
     cardDrag.moved = true;
 
-    // Nothing crosses screens: a pointer off this grid (or on another monitor) has no target.
-    const int HIT   = tileIndexAtPoint(POINT, size->value(), GAP_WIDTH, currentOuterInset(), true);
-    cardDrag.target = isTileValid(HIT) ? HIT : -1;
+    // A pointer over another monitor's overview is a drop there: that grid outlines the card under it, and
+    // this one has no target (its cards stay put, the dragged one's slot is the gap it leaves).
+    auto* const OTHER = gridOverviewForGlobalPoint(GLOBAL);
+    const auto  OMON  = OTHER && OTHER != this && !OTHER->closing ? OTHER->pMonitor.lock() : PHLMONITOR{};
+    if (OMON) {
+        cardDrag.crossKey    = overviewMonitorKey(OMON);
+        const int OHIT       = OTHER->tileIndexAtPoint(GLOBAL - OMON->m_position - OTHER->pos->value() / OMON->m_scale, OTHER->size->value(), OTHER->GAP_WIDTH, OTHER->currentOuterInset(), true);
+        cardDrag.crossTarget = OTHER->isTileValid(OHIT) ? OHIT : -1;
+        cardDrag.target      = -1;
+    } else {
+        cardDrag.crossKey    = 0;
+        cardDrag.crossTarget = -1;
+        const int HIT        = tileIndexAtPoint(POINT, size->value(), GAP_WIDTH, currentOuterInset(), true);
+        cardDrag.target      = isTileValid(HIT) ? HIT : -1;
+    }
     updateCardShiftOffsets();
-    damage();
+    forEachOverview([](IOverviewSession& session) { session.damage(); });
 }
 
 // The live preview: the cards between the dragged slot and the one under the pointer slide one slot
@@ -663,6 +678,8 @@ bool COverview::finishCardDrag() {
     const auto MON = pMonitor.lock();
     if (!DRAG.moved)
         return false; // a click on the badge is a click on the card
+    if (MON && DRAG.crossKey != 0)
+        return finishCrossMonitorDrop(DRAG);
     if (!MON || closing || !isTileValid(DRAG.source) || !isTileValid(DRAG.target) || DRAG.source == DRAG.target)
         return true;
 
@@ -742,6 +759,63 @@ bool COverview::finishCardDrag() {
     // a slot over already stand where their new contents belong, so they stay put.
     landCardDrag(MOVES, DRAG.target, DRAG.pointerLocal - DRAG.grabOffset - tilePosForID(DRAG.target, size->value(), GAP_WIDTH, currentOuterInset(), true));
     Log::logger->log(Log::INFO, "[hyprexpo] card reorder: slot {} -> {} ({} moves)", DRAG.source, DRAG.target, MOVES.size());
+    return true;
+}
+
+bool COverview::finishCrossMonitorDrop(const SCardDrag& DRAG) {
+    const auto MON = pMonitor.lock();
+    auto* const TARGET = gridOverviewForMonitorKey(DRAG.crossKey);
+    const auto  TMON   = TARGET && TARGET != this ? TARGET->pMonitor.lock() : PHLMONITOR{};
+
+    // The drag gave up: the cards it had moved aside go home, and every grid repaints.
+    const auto home = [&] {
+        landCardDrag({}, -1, {});
+        forEachOverview([](IOverviewSession& session) { session.damage(); });
+        return true;
+    };
+
+    if (!MON || !TMON || closing || TARGET->closing || !isTileValid(DRAG.source) || !TARGET->cardReorderAvailable())
+        return home();
+
+    PHLWORKSPACE workspace;
+    for (const auto& candidate : State::workspaceState()->workspacesCopy()) {
+        if (candidate && candidate->m_id == images[DRAG.source].workspaceID && !candidate->inert()) {
+            workspace = candidate;
+            break;
+        }
+    }
+    // An empty workspace is a screen's spare, not something to hand over: the other screen would end up
+    // with two.
+    if (!workspace || workspace->m_monitor != MON || workspace->m_isSpecialWorkspace || workspace->getWindowCount() == 0)
+        return home();
+
+    const int64_t ID = workspace->m_id;
+    State::workspacePlacementController()->moveWorkspaceToMonitor(workspace, TMON, true);
+    Log::logger->log(Log::INFO, "[hyprexpo] card moved across monitors: workspace {} {} -> {}", ID, MON->m_name, TMON->m_name);
+
+    rebuildGrid();
+    TARGET->rebuildGrid();
+
+    // Cards sit in id order, so the workspace arrives at the rank of its id. If it was dropped on another
+    // card, slot it in there the way a reorder on this screen would (windows move, ids stay).
+    const int RANK = TARGET->tileForWorkspaceID(ID);
+    int       SLOT = DRAG.crossTarget;
+    if (SLOT >= 0 && SLOT >= RANK)
+        SLOT++; // the target card was counted before the newcomer joined the grid
+    if (RANK >= 0 && SLOT >= 0 && SLOT != RANK && TARGET->isTileValid(SLOT)) {
+        TARGET->cardDrag               = {};
+        TARGET->cardDrag.active        = true;
+        TARGET->cardDrag.moved         = true;
+        TARGET->cardDrag.source        = RANK;
+        TARGET->cardDrag.target        = SLOT;
+        TARGET->cardDrag.grabOffset    = DRAG.grabOffset;
+        TARGET->cardDrag.pointerLocal  = DRAG.pointerGlobal - TMON->m_position - TARGET->pos->value() / TMON->m_scale;
+        TARGET->cardDrag.pointerGlobal = DRAG.pointerGlobal;
+        TARGET->finishCardDrag();
+    } else
+        TARGET->redrawDraggedWorkspace(ID);
+
+    forEachOverview([](IOverviewSession& session) { session.damage(); });
     return true;
 }
 

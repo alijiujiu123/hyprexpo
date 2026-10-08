@@ -6,6 +6,7 @@
 #include "InputResampler.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -50,6 +51,15 @@ class CExpoGesture : public ITrackpadGesture {
     // overview even when other monitors have one open too.
     PHLMONITORREF m_monitor;
     uint64_t m_sessionGeneration = 0;
+    // The overviews on every other monitor, driven by the same fingers: they open, follow, and are
+    // decided together with the one on the pointer's monitor. Only that one (the primary) may switch
+    // workspace on release; the others close back onto what they showed.
+    struct SFollower {
+        uint64_t monitorKey = 0;
+        uint64_t generation = 0;
+    };
+    std::vector<SFollower> m_followers;
+    void                   forEachFollower(const std::function<void(IOverviewSession&)>& fn) const;
     const EExpoGestureAction m_action;
     float                    m_lastDelta   = 0.F;
     bool                     m_firstUpdate = false;

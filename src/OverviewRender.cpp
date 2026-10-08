@@ -401,7 +401,9 @@ bool COverview::shouldRenderOverviewForMonitor(const PHLMONITOR& monitor) const 
 
 void COverview::fullRender() {
     const auto MON = pMonitor.lock();
-    if (!MON)
+    // rebuildGrid() captures inside the monitor's own render pass, which still holds this overview's element
+    // from the frame before: its tiles are being replaced and have nothing to draw yet.
+    if (!MON || m_rebuilding)
         return;
 
     if (MON->m_activeWorkspace != startedOn && !closing) {
@@ -934,6 +936,32 @@ void COverview::fullRender() {
                                                              {.damage = &liftedDamage, .a = 0.9F, .round = BASE_ROUND_SCALED, .roundingPower = ROUND_PWR});
             drawProxyBorder(lifted, BASE_ROUND_SCALED, std::max(2, (int)**PBWIDTH + 1), std::string{*PBCOLFOC}, std::string{*PBGREFOC});
         }
+    }
+
+    // A card dragged here from another monitor's overview: the card under the pointer is outlined (the drop
+    // slots the workspace in there) and a copy of the dragged card follows the pointer at this grid's own
+    // card size.
+    for (const auto& session : g_overviews) {
+        auto* const SRC = dynamic_cast<COverview*>(session.get());
+        if (!SRC || SRC == this || !SRC->cardDrag.active || !SRC->cardDrag.moved || SRC->cardDrag.crossKey != OVERVIEWKEY || !SRC->isTileValid(SRC->cardDrag.source) ||
+            !SRC->images[SRC->cardDrag.source].fb || images.empty())
+            continue;
+
+        if (isTileValid(SRC->cardDrag.crossTarget))
+            drawBorderForID(SRC->cardDrag.crossTarget, std::string{*PBCOLFOC}, std::string{*PBGREFOC}, RND_FOC, std::max(2, (int)**PBWIDTH + 1));
+
+        const auto     SRCTILE = SRC->tileBoxForIndex(SRC->cardDrag.source, SRC->size->value(), SRC->GAP_WIDTH, SRC->currentOuterInset(), true);
+        const auto     OWNTILE = tileBoxForIndex(0, SIZE, GAPSIZE, OUTER, true);
+        const double   K       = SRCTILE.w > 0 ? OWNTILE.w / SRCTILE.w : 1.0;
+        const Vector2D POINTER = SRC->cardDrag.pointerGlobal - MON->m_position - pos->value() / MON->m_scale;
+        const Vector2D TOPLEFT = POINTER - SRC->cardDrag.grabOffset * K;
+        CBox           lifted{TOPLEFT.x * MON->m_scale + pos->value().x, TOPLEFT.y * MON->m_scale + pos->value().y, OWNTILE.w * MON->m_scale, OWNTILE.h * MON->m_scale};
+        lifted.round();
+        CRegion liftedDamage{0, 0, INT16_MAX, INT16_MAX};
+        Render::GL::g_pHyprOpenGL->renderTextureInternal(SRC->images[SRC->cardDrag.source].fb->getTexture(), lifted,
+                                                         {.damage = &liftedDamage, .a = 0.9F, .round = BASE_ROUND_SCALED, .roundingPower = ROUND_PWR});
+        drawProxyBorder(lifted, BASE_ROUND_SCALED, std::max(2, (int)**PBWIDTH + 1), std::string{*PBCOLFOC}, std::string{*PBGREFOC});
+        break;
     }
 
     if (entryAnimationPending)

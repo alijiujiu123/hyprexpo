@@ -1284,6 +1284,75 @@ void COverview::fillDynamicGrid() {
     ensureTileOffsets();
 }
 
+void COverview::rebuildGrid() {
+    const auto MON = pMonitor.lock();
+    if (!MON || !MON->m_activeWorkspace)
+        return;
+
+    if (redrawSettleTimer) {
+        redrawSettleTimer->cancel();
+        redrawSettleTimer.reset();
+    }
+    settlingRedrawWorkspaceIDs.clear();
+    queuedRedrawIDs.clear();
+
+    // The screen may have a different workspace in front now (the one that left was the one on show).
+    startedOn = MON->m_activeWorkspace;
+
+    m_rebuilding = true;
+    Render::GL::g_pHyprOpenGL->makeEGLCurrent();
+    images.clear();
+    badgeBoxes.clear();
+    fillDynamicGrid();
+    for (const auto& offset : tileOffsets)
+        if (offset)
+            offset->setValueAndWarp(Vector2D{0, 0});
+
+    CBox monbox{{0, 0}, MON->m_pixelSize};
+    int  currentid = 0;
+
+    // Same capture pass as the constructor: the workspace on show is hidden for the duration so the
+    // previews are taken the same way as when the overview opened.
+    startedOn->m_visible = false;
+    for (size_t i = 0; i < images.size(); ++i) {
+        auto& image = images[i];
+        PHLWORKSPACE workspace;
+        for (const auto& w : State::workspaceState()->workspacesCopy()) {
+            if (w->m_id == image.workspaceID) {
+                workspace = w;
+                break;
+            }
+        }
+        if (workspace == startedOn)
+            currentid = i;
+
+        image.pWorkspace = workspace;
+        Hyprexpo::Capture::captureWorkspacePreview({
+            .monitor              = MON,
+            .workspace            = workspace,
+            .startedOn            = startedOn,
+            .box                  = monbox,
+            .showPinnedWindows    = showPinnedWindowsInPreview(),
+            .blockSurfaceFeedback = true,
+        }, image.fb);
+        image.box = tileBoxForIndex((int)i, MON->m_size, GAP_WIDTH, 0.0, true);
+    }
+    MON->m_activeWorkspace = startedOn;
+    startedOn->m_visible   = true;
+    m_rebuilding           = false;
+
+    openedID  = currentid;
+    closeOnID = -1;
+    kbFocusID = -1;
+    hoveredID = -1;
+    lastTileCapture.assign(images.size(), std::chrono::steady_clock::now());
+
+    // The camera stays where the overview is open: full size, no offset.
+    *size = MON->m_size;
+    *pos  = {0, 0};
+    damage();
+}
+
 // One animated offset per card, in step with `images`. Created here rather than per drag (a drag must
 // not pay for a handful of allocations) and out of `Hyprexpo::Animation::configForCardReorder()`, whose
 // duration is what the kit's reduced-motion toggle zeroes. `Animation::mgr()` ticks each one and calls

@@ -93,6 +93,21 @@ independently. Releasing over a gap, the source tile, or an invalid target moves
 nothing; cleanup still removes highlights, restores the cursor, and repaints
 every monitor visited by the drag.
 
+## Gesture and card moves across monitors
+
+The trackpad gesture (`expo` / `commit` / `cancel`) is not tied to the monitor under the pointer
+any more: it opens an overview on **every** monitor, and the same finger travel drives every
+one of them, so they zoom out together and are decided together on release. Only the
+monitor the pointer is on can switch workspace when the closing swipe commits; the others
+close back onto the workspace they opened on.
+
+A workspace card can be dragged by its badge onto another monitor's overview. On release the
+whole workspace (its windows included) moves to that monitor and both grids re-derive. Cards
+sit in id order on a screen, so the workspace arrives at the rank of its id; when it was dropped
+on a card, it is then slotted in there the way a reorder on that screen works (windows move,
+ids stay). An empty workspace (a screen's spare) is not handed over. Needs `dynamic_grid` on
+and `mru_sort` off, like the reorder.
+
 ## Troubleshooting Monitor Names
 
 If a per-monitor entry does not apply, check the monitor name reported by Hyprland and use that exact name in the comma-separated list.

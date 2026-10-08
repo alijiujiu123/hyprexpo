@@ -180,6 +180,7 @@ class COverview final : public IOverviewSession {
     CHyprColor BG_COLOR    = CHyprColor{0.1, 0.1, 0.1, 1.0};
 
     bool       damageDirty = false;
+    bool       m_rebuilding = false;
 
     Vector2D                     lastMousePosLocal = Vector2D{};
 
@@ -219,6 +220,12 @@ class COverview final : public IOverviewSession {
         Vector2D pressLocal;   // monitor-local logical
         Vector2D pointerLocal; // monitor-local logical
         Vector2D grabOffset;   // pointer minus the card's top-left at press, logical
+        // The pointer is over another monitor's overview: `crossKey` is that overview's monitor key (0 = this
+        // one) and `crossTarget` the card under the pointer there (-1 = none). Dropping then moves the whole
+        // workspace over to that monitor.
+        uint64_t crossKey    = 0;
+        int      crossTarget = -1;
+        Vector2D pointerGlobal;
     } cardDrag;
 
     // How far each card is drawn from its own slot, monitor-local *logical* units like the box
@@ -231,6 +238,11 @@ class COverview final : public IOverviewSession {
     // Re-derives the dynamic grid from this monitor's workspaces and sizes `images` (and the per-tile
     // bookkeeping) to match. Called from the constructor when the overview opens.
     void                         fillDynamicGrid();
+    // Re-derives the cards and re-captures them after a workspace changed monitor under an open overview.
+    void                         rebuildGrid();
+    // The drop of a card on another monitor's overview: the workspace goes there, both grids re-derive, and
+    // the card is then slotted in where it was dropped.
+    bool                         finishCrossMonitorDrop(const SCardDrag& drag);
   private:
     // The workspace id whose card's close button the pointer is over, or WORKSPACE_INVALID. The
     // button is a small square just inside the card's top-left corner; it is the *hovered* card that
