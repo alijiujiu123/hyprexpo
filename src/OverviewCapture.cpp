@@ -187,6 +187,15 @@ bool captureWorkspacePreview(const SWorkspaceCaptureRequest& request, SP<Render:
         if (!g_pHyprRenderer->beginRender(request.monitor, fakeDamage, Render::RENDER_MODE_FULL_FAKE, nullptr, framebuffer))
             return false;
         rendererState.begun();
+        // beginRender projects through the monitor's two cached matrices (getTransformMatrix and
+        // getScaleMatrix), and both still describe the rotated output: CMonitor::updateMatrix() is
+        // private and runs only on a mode change, so normalizing the fields above does not reach them,
+        // and the windows landed sheared across the portrait buffer (two stacked windows drawn as
+        // bottom-left and top-right). RPT_EXPORT projects onto m_renderData.fbSize alone.
+        if (isTransformRotated(monitorState.transform())) {
+            g_pHyprRenderer->m_renderData.fbSize = captureBox.size();
+            g_pHyprRenderer->setProjectionType(Render::RPT_EXPORT);
+        }
         g_pHyprRenderer->m_bBlockSurfaceFeedback = g_pHyprRenderer->m_bBlockSurfaceFeedback || request.blockSurfaceFeedback;
         clearWithColor(CHyprColor{0, 0, 0, 1.0});
 
@@ -247,7 +256,7 @@ bool captureWorkspacePreview(const SWorkspaceCaptureRequest& request, SP<Render:
             return false;
 
         if (const auto texture = framebuffer->getTexture(); texture)
-            texture->m_transform = isTransformRotated(monitorState.transform()) ? HYPRUTILS_TRANSFORM_180 : HYPRUTILS_TRANSFORM_NORMAL;
+            texture->m_transform = HYPRUTILS_TRANSFORM_NORMAL; // upright: the capture above projects without the rotation
         else
             return false;
 
