@@ -835,4 +835,25 @@ int cardShiftFor(size_t count, size_t from, int to, size_t index) {
     return 0;
 }
 
+SInsertPlan planWorkspaceInsertion(const std::vector<int64_t>& slots, const std::vector<int64_t>& globallyUsed, int64_t currentID) {
+    SInsertPlan plan;
+    const auto current = std::find(slots.begin(), slots.end(), currentID);
+    if (slots.empty() || current == slots.end() || !std::is_sorted(slots.begin(), slots.end()) || slots.front() <= 0 ||
+        std::adjacent_find(slots.begin(), slots.end()) != slots.end())
+        return plan;
+    constexpr int64_t MAX_ID = 2147483647;
+    int64_t next = slots.back() + 1;
+    while (next <= MAX_ID && std::find(globallyUsed.begin(), globallyUsed.end(), next) != globallyUsed.end())
+        ++next;
+    if (next > MAX_ID)
+        return plan;
+    plan.valid = true;
+    plan.newID = next;
+    const auto index = static_cast<size_t>(current - slots.begin());
+    plan.targetID = index + 1 < slots.size() ? slots[index + 1] : next;
+    for (size_t i = slots.size(); i-- > index + 1;)
+        plan.moves.push_back({slots[i], i + 1 < slots.size() ? slots[i + 1] : next});
+    return plan;
+}
+
 }

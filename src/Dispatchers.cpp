@@ -8,6 +8,7 @@
 #include "HyprlandConfigCompat.hpp"
 #include "IOverviewSession.hpp"
 #include "Overview.hpp"
+#include "WorkspaceContents.hpp"
 #include "ScrollingDiagnostics.hpp"
 #include <hyprland/src/Compositor.hpp>
 #include <hyprland/src/config/shared/actions/ConfigActions.hpp>
@@ -439,6 +440,28 @@ static bool luaTableBoolField(lua_State* L, const char* name, const char* field,
 
 static int luaExpo(lua_State* L) {
     return luaDispatchResult(L, "hyprexpo.expo", onExpoDispatcher(luaStringArg(L, 1, "hyprexpo.expo", "toggle")));
+}
+
+static int luaInsertWorkspace(lua_State* L) {
+    if (!lua_istable(L, 1)) return luaL_error(L, "hyprexpo.insert_workspace: expected a table");
+    const bool moveWindow = luaTableBoolField(L, "hyprexpo.insert_workspace", "move_window", false);
+    const auto monitor = luaTableStringField(L, "hyprexpo.insert_workspace", "monitor", "");
+    try {
+        const auto result = Hyprexpo::Contents::insertAfterCurrent(moveWindow, monitor);
+        if (!result) return luaL_error(L, "hyprexpo.insert_workspace: %s", result.error().c_str());
+        lua_pushinteger(L, *result);
+        return 1;
+    } catch (const std::exception& error) {
+        return luaL_error(L, "hyprexpo.insert_workspace: %s", error.what());
+    }
+}
+
+// The native diagnostic already has a dispatcher. Lua sessions need a reachable read-only twin.
+static int luaScrollingSnapshot(lua_State* L) {
+    const auto emission = Hyprexpo::Scrolling::buildReadDiagnostic(luaStringArg(L, 1, "hyprexpo.scrolling_snapshot"));
+    if (!emission.success) return luaL_error(L, "hyprexpo.scrolling_snapshot: %s", emission.error.c_str());
+    lua_pushlstring(L, emission.json.data(), emission.json.size());
+    return 1;
 }
 
 static int luaKbFocus(lua_State* L) {
@@ -980,6 +1003,8 @@ void registerHyprexpoDispatchers() {
     HyprlandAPI::addDispatcherV2(PHANDLE, "hyprexpo:simswipe", onSimSwipeDispatcher);
 
     HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "expo", luaExpo);
+    HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "insert_workspace", luaInsertWorkspace);
+    HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "scrolling_snapshot", luaScrollingSnapshot);
     HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "kb_focus", luaKbFocus);
     HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "kb_confirm", luaKbConfirm);
     HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "kb_selectn", luaKbSelectNumber);

@@ -1342,6 +1342,19 @@ int main() {
         expect(Hyprexpo::cardShiftFor(3, 0, 9, 1) == 0, "a target past the end slides nothing");
     }
 
+    {
+        const auto plan = Hyprexpo::planWorkspaceInsertion({4, 5, 10}, {1, 4, 5, 10, 11}, 4);
+        expect(plan.valid && plan.targetID == 5 && plan.newID == 12, "insertion uses next local slot and skips other screen IDs");
+        expect(plan.moves.size() == 2 && plan.moves[0].source == 10 && plan.moves[0].destination == 12 &&
+               plan.moves[1].source == 5 && plan.moves[1].destination == 10, "tail first leaves each destination empty before content movement");
+        const auto last = Hyprexpo::planWorkspaceInsertion({4, 10}, {4, 10, 11}, 10);
+        expect(last.valid && last.targetID == 12 && last.moves.empty(), "last workspace inserts by appending without moving residents");
+        expect(!Hyprexpo::planWorkspaceInsertion({4, 10}, {4, 10}, 7).valid, "unknown current workspace is rejected before mutation");
+        expect(!Hyprexpo::planWorkspaceInsertion({10, 4}, {4, 10}, 4).valid, "unordered slots rejected before mutation");
+        expect(!Hyprexpo::planWorkspaceInsertion({4, 4}, {4}, 4).valid, "duplicate slots rejected before mutation");
+        expect(!Hyprexpo::planWorkspaceInsertion({2147483647}, {2147483647}, 2147483647).valid, "workspace ID exhaustion does not wrap");
+    }
+
     if (failures != 0)
         return 1;
 

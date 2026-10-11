@@ -18,6 +18,7 @@
 #include "OverviewCapture.hpp"
 #include "OverviewInternal.hpp"
 #include "PluginConfig.hpp"
+#include "WorkspaceContents.hpp"
 #include <stdexcept>
 #include <string>
 
@@ -253,6 +254,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
 
     registerHyprexpoDispatchers();
 
+    Hyprexpo::Contents::init();
+
     registerHyprexpoConfigValues();
 
     registerOverviewEvent();
@@ -267,6 +270,7 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
 }
 
 APICALL EXPORT void PLUGIN_EXIT() {
+    Hyprexpo::Contents::shutdown();
     disableExpoGestureRegistration();
 
     destroyAllOverviews();

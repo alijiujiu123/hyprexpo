@@ -278,4 +278,14 @@ std::string              webAppClassFromUrl(std::string_view url);
 SWorkspaceMethodSpec     parseWorkspaceMethodSpec(const std::string& method);
 SWorkspaceMethodSpec     resolveWorkspaceMethodForMonitor(const std::string& config, const std::string& monitorName);
 
+// Stable ID slots, with the tail contents shifted backwards into one new trailing slot.
+struct SContentMove { int64_t source = 0; int64_t destination = 0; };
+struct SInsertPlan {
+    bool valid = false;
+    int64_t newID = 0;
+    int64_t targetID = 0;
+    std::vector<SContentMove> moves;
+};
+SInsertPlan planWorkspaceInsertion(const std::vector<int64_t>& slots, const std::vector<int64_t>& globallyUsed, int64_t currentID);
+
 }

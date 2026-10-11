@@ -1,5 +1,19 @@
 # HyprExpo
 
+Our workspace creation extension (kit [#39](https://github.com/alijiujiu123/omarchy-setup-kit/issues/39),
+`v0.56.2+39`) exposes `hl.plugin.hyprexpo.insert_workspace({ move_window = false, monitor = "..." })`.
+It inserts after the current workspace on that monitor, focuses the inserted workspace and returns
+its ID. `move_window = true` also carries the focused window there. The overview card reorder and
+insertion share the same content mover: IDs/monitor bindings stay fixed, dwindle geometry and native
+scrolling columns/row proportions/camera are restored, as are fullscreen modes and app-icon anchors.
+An empty inserted workspace is transient. Unsupported displaced layouts are rejected before movement.
+The session's carried layouts survive config reload; they expire with the workspace. Creation is
+rejected while an overview is open. Test with `scripts/test-workspace-insertion.py <two-output-sandbox>`.
+
+`hl.plugin.hyprexpo.scrolling_snapshot("REQUEST_ID workspace:ID")` returns the existing read-only
+native scrolling diagnostic as JSON for Lua sessions, including columns, sizes and camera offset.
+
+
 HyprExpo is a maintained Hyprland plugin for expose-style workspace overview with keyboard selection, drag-drop window movement, labels, configurable gaps and borders, multi-monitor placement, and Lua gestures.
 
 https://github.com/user-attachments/assets/861baa26-46b6-4fa8-8d37-65cbb9ecbed4
@@ -8,7 +22,7 @@ Native Hyprland scrolling-layout workspaces open a separate window-level
 scrolling overview. It preserves the full offscreen tape, supports pointer,
 touch, keyboard, panning, and positional window moves, and reuses grid captures
 for mixed-layout rows. This is intentionally not full Niri parity: hot corners,
-dwell activation, layer-shell/wallpaper composition, and arbitrary workspace
+dwell activation, layer-shell/wallpaper composition, and named/special workspace
 insertion are outside the implemented contract.
 
 If you experience any bugs, you are encouraged to [open an issue](https://github.com/sandwichfarm/hyprexpo/issues/new). Information I can use to reproduce a bug is appreciated. 
