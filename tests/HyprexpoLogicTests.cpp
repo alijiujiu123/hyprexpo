@@ -1248,6 +1248,16 @@ int main() {
         expect(Hyprexpo::webAppClassFromUrl("omarchy-launch-webapp \"https://app.hey.com/imbox?x=1\"") == "chrome-app.hey.com__imbox-Default", "path slashes become underscores, query dropped");
         expect(Hyprexpo::webAppClassFromUrl("https://example.com") == "chrome-example.com__-Default", "no path parses as the root path");
         expect(Hyprexpo::webAppClassFromUrl("/usr/bin/kitty").empty(), "no URL, no web app class");
+
+        const auto STRATA = Hyprexpo::parseAppIndexLine("strata\t/home/u/.local/share/icons/hicolor/scalable/apps/io.github.lgse.Strata.svg\t18de5-1ba");
+        expect(STRATA && STRATA->appClass == "strata" && STRATA->path.ends_with("Strata.svg") && STRATA->rev == "18de5-1ba", "an index line has class, file and revision");
+        expect(!Hyprexpo::parseAppIndexLine("# omarchy-app-index 1"), "the header is not an entry");
+        expect(!Hyprexpo::parseAppIndexLine(""), "an empty line is not an entry");
+        expect(!Hyprexpo::parseAppIndexLine("kitty\trelative.svg\tr"), "a relative path is refused");
+        expect(!Hyprexpo::parseAppIndexLine("kitty\t/a.svg"), "two fields are refused");
+        expect(!Hyprexpo::parseAppIndexLine("kitty\t/a.svg\tr\textra"), "four fields are refused");
+        const auto CRLF = Hyprexpo::parseAppIndexLine("kitty\t/a.svg\tr\r");
+        expect(CRLF && CRLF->rev == "r", "a trailing carriage return is not part of the revision");
     }
 
     {

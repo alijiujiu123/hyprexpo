@@ -806,6 +806,25 @@ std::string webAppClassFromUrl(std::string_view text) {
     return "chrome-" + name + "-Default";
 }
 
+std::optional<SAppIndexLine> parseAppIndexLine(std::string_view line) {
+    if (!line.empty() && line.back() == '\r')
+        line.remove_suffix(1);
+    if (line.empty() || line.front() == '#')
+        return std::nullopt;
+    const size_t FIRST = line.find('\t');
+    if (FIRST == std::string_view::npos)
+        return std::nullopt;
+    const size_t SECOND = line.find('\t', FIRST + 1);
+    if (SECOND == std::string_view::npos || line.find('\t', SECOND + 1) != std::string_view::npos)
+        return std::nullopt;
+    SAppIndexLine out{.appClass = std::string{line.substr(0, FIRST)},
+                      .path     = std::string{line.substr(FIRST + 1, SECOND - FIRST - 1)},
+                      .rev      = std::string{line.substr(SECOND + 1)}};
+    if (out.appClass.empty() || out.path.empty() || out.path.front() != '/')
+        return std::nullopt;
+    return out;
+}
+
 std::vector<SSlotMove> planCardReorder(size_t count, size_t from, size_t to) {
     std::vector<SSlotMove> moves;
     if (from == to || from >= count || to >= count)

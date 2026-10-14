@@ -275,6 +275,14 @@ int cardShiftFor(size_t count, size_t from, int to, size_t index);
 // "https://x.com/" -> "chrome-x.com__-Default". Empty when the text holds no http(s) URL.
 std::string              webAppClassFromUrl(std::string_view url);
 
+// One line of the machine's app index (omarchy-setup-kit's `app-index`, `classes.tsv`):
+// "<lowercase class>\t<icon file>\t<rev>", where rev changes whenever the file does. Empty for the
+// header, a comment, or a line that is not three fields with an absolute path.
+struct SAppIndexLine {
+    std::string appClass, path, rev;
+};
+std::optional<SAppIndexLine> parseAppIndexLine(std::string_view line);
+
 SWorkspaceMethodSpec     parseWorkspaceMethodSpec(const std::string& method);
 SWorkspaceMethodSpec     resolveWorkspaceMethodForMonitor(const std::string& config, const std::string& monitorName);
 

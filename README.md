@@ -1,5 +1,11 @@
 # HyprExpo
 
+`v0.56.2+43` takes the card badge's icon from the machine's app index when there is one
+(omarchy-setup-kit's `app-index` module, `$XDG_CACHE_HOME/omarchy-app-index/classes.tsv`; kit #51), so
+the badge, the Dock and Spotlight show the same file. The index's revision joins the texture key, so an
+icon replaced in place is loaded again within two seconds. With `label_icon_theme` set, or without the
+file, the badge resolves icons as before.
+
 `v0.56.2+42` adds `hl.plugin.hyprexpo.status()`: `in_flight=1` during a
 trackpad swipe or an overview card drag. The setup kit uses it to refuse a
 hot swap while input still refers to this plugin (kit #49).

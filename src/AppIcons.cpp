@@ -265,13 +265,16 @@ namespace {
     }
 
     std::string g_themeName;
+    bool        g_themeConfigured = false; // `label_icon_theme` names a theme: the app index is not used
     std::string g_themeChecked; // the value the caches below were built for
     std::optional<Clock::time_point> g_themeCheckedAt;
 
     std::string currentThemeName() {
         // Through the compat shim like every string key: under a Lua config the raw API's data
         // pointer for a string is not a `const char*` (it crashed the live session, 2026-09-25).
-        if (const std::string configured = trim(std::string{CompatHyprlandAPI::stringValue("plugin:hyprexpo:label_icon_theme")}); !configured.empty())
+        const std::string configured = trim(std::string{CompatHyprlandAPI::stringValue("plugin:hyprexpo:label_icon_theme")});
+        g_themeConfigured            = !configured.empty();
+        if (g_themeConfigured)
             return configured;
 
         // Omarchy's theme switcher writes the icon theme it sets through gsettings here.
@@ -333,6 +336,32 @@ namespace {
     std::unordered_map<std::string, SClassIcon>           g_classIcons;
     std::unordered_map<std::string, SP<Render::ITexture>> g_textures; // "<px>:<path>"
 
+    // --- the machine's app index ------------------------------------------------------------
+    //
+    // omarchy-setup-kit's `app-index` module keeps $XDG_CACHE_HOME/omarchy-app-index/classes.tsv
+    // current: a watcher rebuilds it when desktop entries, icon files, the icon theme or the Dock's
+    // custom icons change. While it exists, and no `label_icon_theme` asks for another theme, it
+    // answers first, so a badge shows the very file the Dock and Spotlight show (kit #51: one app,
+    // three different icons, because each surface had its own lookup and its own cache). Its rev
+    // joins the texture key, so an icon replaced in place is loaded again instead of kept forever.
+    // The lookup further down stays as the fallback for a machine without the index.
+    struct SIndexIcon {
+        std::string path, rev;
+    };
+    std::unordered_map<std::string, SIndexIcon> g_index; // lowercase class -> icon
+    std::optional<fs::file_time_type>            g_indexMtime;
+    std::optional<Clock::time_point>             g_indexCheckedAt;
+
+    std::string indexPath() {
+        return envOr("XDG_CACHE_HOME", home() + "/.cache") + "/omarchy-app-index/classes.tsv";
+    }
+
+    void dropIndex() {
+        g_index.clear();
+        g_indexMtime.reset();
+        g_indexCheckedAt.reset();
+    }
+
     void dropCaches() {
         g_desktopIcons.clear();
         g_desktopIndexBuilt.reset();
@@ -340,6 +369,35 @@ namespace {
         g_iconPaths.clear();
         g_classIcons.clear();
         g_textures.clear();
+        dropIndex();
+    }
+
+    // The file is written by rename, so a new mtime is a whole new index. Checked at most every two
+    // seconds, and only while cards are being drawn, like the theme.
+    void refreshIndex() {
+        const auto NOW = Clock::now();
+        if (g_indexCheckedAt && NOW - *g_indexCheckedAt < std::chrono::seconds(2))
+            return;
+        g_indexCheckedAt = NOW;
+
+        std::error_code ec;
+        const auto      MTIME = fs::last_write_time(indexPath(), ec);
+        if (ec) {
+            g_index.clear();
+            g_indexMtime.reset();
+            return;
+        }
+        if (g_indexMtime && *g_indexMtime == MTIME)
+            return;
+        g_indexMtime = MTIME;
+
+        g_index.clear();
+        std::ifstream in(indexPath());
+        for (std::string line; std::getline(in, line);) {
+            if (auto entry = Hyprexpo::parseAppIndexLine(line))
+                g_index[entry->appClass] = {.path = std::move(entry->path), .rev = std::move(entry->rev)};
+        }
+        g_textures.clear(); // the old revisions' pictures; the ones still current load again once
     }
 
     // A theme switch changes every icon, so the caches are rebuilt when it happens; the file
@@ -489,15 +547,24 @@ SP<Render::ITexture> iconTexture(const std::string& appClass, int px) {
         return nullptr;
 
     refreshTheme();
-    const auto PATH = iconPathForClass(appClass);
-    if (PATH.empty())
+    std::string path, rev;
+    if (!g_themeConfigured) {
+        refreshIndex();
+        if (const auto IT = g_index.find(lower(appClass)); IT != g_index.end()) {
+            path = IT->second.path;
+            rev  = IT->second.rev;
+        }
+    }
+    if (path.empty())
+        path = iconPathForClass(appClass);
+    if (path.empty())
         return nullptr;
 
-    const auto KEY = std::to_string(px) + ":" + PATH;
+    const auto KEY = std::to_string(px) + ":" + path + ":" + rev;
     if (const auto IT = g_textures.find(KEY); IT != g_textures.end())
         return IT->second;
 
-    auto tex        = loadTexture(PATH, px);
+    auto tex        = loadTexture(path, px);
     g_textures[KEY] = tex; // a file that fails to load is not retried every frame
     return tex;
 }
