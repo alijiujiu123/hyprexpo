@@ -1,5 +1,9 @@
 # HyprExpo
 
+`v0.56.2+42` adds `hl.plugin.hyprexpo.status()`: `in_flight=1` during a
+trackpad swipe or an overview card drag. The setup kit uses it to refuse a
+hot swap while input still refers to this plugin (kit #49).
+
 `v0.56.2+41` fixes the multi-monitor swipe-release crash recorded in
 [kit #49](https://github.com/alijiujiu123/omarchy-setup-kit/issues/49).
 Release re-resolves each overview by monitor and generation before resetting it,

@@ -473,6 +473,15 @@ static int luaKbFocus(lua_State* L) {
 // `hyprexpo:simswipe` dispatcher is unreachable — a *dispatcher* needs the hyprlang parser, which
 // the Lua config does not use — so without this there is no way to ask "which tile is the keyboard
 // ring on, is the session still open, what does the grid cost" from a script. It changes nothing.
+static int luaStatus(lua_State* L) {
+    const bool SWIPE = CExpoGesture::inFlight();
+    const bool DRAG = std::any_of(g_overviews.begin(), g_overviews.end(), [](const auto& session) { return session && session->ownsPointerInput(); });
+    const auto LINE = std::format("hyprexpo {} - in_flight={} (swipe={} drag={} sessions={})", HYPREXPO_VERSION,
+                                  (SWIPE || DRAG) ? 1 : 0, SWIPE ? 1 : 0, DRAG ? 1 : 0, g_overviews.size());
+    lua_pushlstring(L, LINE.data(), LINE.size());
+    return 1;
+}
+
 static int luaDebugGeometry(lua_State* L) {
     auto* const OV = activeOverview();
     if (!OV)
@@ -1013,5 +1022,6 @@ void registerHyprexpoDispatchers() {
     HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "gesture", luaGesture);
     HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "debug", luaDebugGeometry);
     HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "sessions", luaSessions);
+    HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "status", luaStatus);
     HyprlandAPI::addLuaFunction(PHANDLE, "hyprexpo", "simswipe", luaSimSwipe);
 }

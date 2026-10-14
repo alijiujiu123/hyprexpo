@@ -33,6 +33,7 @@ class CExpoGesture : public ITrackpadGesture {
     // Once per frame per monitor, before the renderer decides whether to draw (render.preChecks):
     // with resample_ms on, moves the overview to where the fingers were resample_ms ago.
     static void preRender(const PHLMONITOR& monitor);
+    static bool inFlight();
 
     virtual void begin(const ITrackpadGesture::STrackpadGestureBegin& e);
     virtual void update(const ITrackpadGesture::STrackpadGestureUpdate& e);

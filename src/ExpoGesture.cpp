@@ -70,6 +70,10 @@ CExpoGesture::~CExpoGesture() {
         g_liveExpo = nullptr;
 }
 
+bool CExpoGesture::inFlight() {
+    return g_liveExpo != nullptr;
+}
+
 void CExpoGesture::preRender(const PHLMONITOR& monitor) {
     if (!g_liveExpo)
         return;
