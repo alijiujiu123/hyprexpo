@@ -59,6 +59,7 @@ hyprexpo_logic_tests
 HyprexpoLogicTests
 OverviewSourceTests
 RegistryTeardownTests
+OverviewSwipeTests
 ScrollingInputOracle
 
 # Planning files

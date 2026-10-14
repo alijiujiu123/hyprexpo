@@ -1,6 +1,7 @@
 #include "Overview.hpp"
 
 #include "OverviewAnimation.hpp"
+#include "OverviewSwipe.hpp"
 #include <any>
 #include <map>
 #include <algorithm>
@@ -727,7 +728,7 @@ bool COverview::ownsPointerInput() const {
 }
 
 IOverviewSession* createOverview(const PHLMONITOR& monitor, bool swipe) {
-    if (!monitor || !monitor->m_activeWorkspace)
+    if (!monitor || !monitor->m_activeWorkspace || !Hyprexpo::validOverviewSize(monitor->m_size, monitor->m_pixelSize))
         return nullptr;
 
     if (auto* const EXISTING = overviewForMonitor(monitor)) {

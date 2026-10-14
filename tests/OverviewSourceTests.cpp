@@ -592,25 +592,25 @@ int main() {
                    "gesture treats a pause before release as no motion so stale velocity cannot commit");
 
     const auto gestureEnd = extractFunction(gestureSource, "void CExpoGesture::end(");
+    expectContains(extractFunction(source, "IOverviewSession* createOverview("),
+                   "Hyprexpo::validOverviewSize(monitor->m_size, monitor->m_pixelSize)",
+                   "overview creation rejects outputs without usable logical and pixel sizes");
     expect(!gestureEnd.empty(), "gesture end function exists");
     expect(gestureEnd.find("auto* const OV = overview();") != std::string::npos &&
                gestureEnd.find("!OV || OV->closeCommitted()") != std::string::npos,
            "gesture end re-resolves the origin overview and ignores committed closes");
-    expect(gestureEnd.find("OV->setClosing(false)") != std::string::npos,
-           "gesture end clears transient closing before threshold evaluation");
+    expect(gestureEnd.find("Hyprexpo::finishOverviewSwipe([this] { return overview(); }, SELECTS, PROJECTED)") != std::string::npos,
+           "primary release uses the tested generation-resolving release helper");
     expect(gestureEnd.find("const bool SELECTS = m_action != EExpoGestureAction::Cancel && (m_action != EExpoGestureAction::Commit || m_lastDelta >= commitMinTravel());") !=
                std::string::npos,
            "gesture completion selects for every action except cancel, and for commit only past the travel floor");
     expect(gestureEnd.find("if (m_action == EExpoGestureAction::Commit && !SELECTS)") != std::string::npos && gestureEnd.find("OV->beginCancelSwipe()") != std::string::npos,
            "a commit below the travel floor is re-targeted at the opening workspace, so it closes without switching");
-    expect(gestureEnd.find("OV->onSwipeEnd(SELECTS, PROJECTED)") != std::string::npos,
-           "gesture completion forwards the release projection with the decision it derived");
     expectContains(gestureSource, "plugin:hyprexpo:commit_min_travel", "the commit travel floor is read from the live config");
     expect(gestureEnd.find("e.swipe ? releaseProjectedDelta(e.swipe->timeMs) : -1.0") != std::string::npos,
            "gesture completion derives the projection from the release timestamp");
-    expect(gestureEnd.find("if (auto* const STILL_ALIVE = overview())") != std::string::npos &&
-               gestureEnd.find("STILL_ALIVE->resetSwipe()") != std::string::npos,
-           "gesture completion re-resolves the origin overview before its post-close reset");
+    expectContains(gestureEnd, "Hyprexpo::finishOverviewSwipe([&follower] { return overviewForSession(follower.monitorKey, follower.generation); }, false, PROJECTED)",
+                   "follower release uses the same tested helper without selecting a workspace");
 
     const auto swipeEnd = extractFunction(interactionSource, "void COverview::onSwipeEnd(");
     expect(!swipeEnd.empty(), "overview swipe-end function exists");

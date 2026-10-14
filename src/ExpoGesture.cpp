@@ -3,6 +3,7 @@
 #include "GestureMomentum.hpp"
 #include "HyprlandConfigCompat.hpp"
 #include "IOverviewSession.hpp"
+#include "OverviewSwipe.hpp"
 
 #include <hyprland/src/Compositor.hpp>
 #include <hyprland/src/debug/log/Logger.hpp>
@@ -336,16 +337,11 @@ void CExpoGesture::end(const ITrackpadGesture::STrackpadGestureEnd& e) {
 
     // The followers are decided by the same position and velocity, and never select. They go first:
     // the primary's release may tear its overview down.
-    forEachFollower([PROJECTED](IOverviewSession& s) {
-        s.setClosing(false);
-        s.onSwipeEnd(false, PROJECTED);
-        s.resetSwipe();
-    });
+    for (const auto& follower : m_followers)
+        Hyprexpo::finishOverviewSwipe([&follower] { return overviewForSession(follower.monitorKey, follower.generation); }, false, PROJECTED);
     m_followers.clear();
 
-    OV->setClosing(false);
-    OV->onSwipeEnd(SELECTS, PROJECTED);
-    // onSwipeEnd can tear the overview down, so re-resolve before touching it.
-    if (auto* const STILL_ALIVE = overview())
-        STILL_ALIVE->resetSwipe();
+    // Follower teardown callbacks may also remove the primary. Resolve it
+    // again before release, and again before the post-release reset.
+    Hyprexpo::finishOverviewSwipe([this] { return overview(); }, SELECTS, PROJECTED);
 }

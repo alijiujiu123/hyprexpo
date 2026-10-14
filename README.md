@@ -1,5 +1,14 @@
 # HyprExpo
 
+`v0.56.2+41` fixes the multi-monitor swipe-release crash recorded in
+[kit #49](https://github.com/alijiujiu123/omarchy-setup-kit/issues/49).
+Release re-resolves each overview by monitor and generation before resetting it,
+because an empty overview can destroy itself during `onSwipeEnd`. Outputs without
+valid logical and pixel sizes are skipped until a usable mode is available.
+`make test` covers immediate destruction and replacement under ASan/UBSan;
+`python scripts/validate-swipe-lifetime.py <name>` exercises a three-output,
+headless Lua sandbox started with `scripts/nested-ctl.sh start <name> --outputs 3`.
+
 Our workspace creation extension (kit [#39](https://github.com/alijiujiu123/omarchy-setup-kit/issues/39),
 `v0.56.2+39`) exposes `hl.plugin.hyprexpo.insert_workspace({ move_window = false, monitor = "..." })`.
 It inserts after the current workspace on that monitor, focuses the inserted workspace and returns
